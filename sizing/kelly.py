@@ -136,7 +136,7 @@ def compute_kelly(
     log.debug(
         f"Kelly: model={model_prob:.3f} adj={adjusted_prob:.3f} "
         f"market={market_price:.3f} edge={full_kelly:.4f} "
-        f"annual_mult={annualized_multiplier:.1f}x "
+        f"time_mult={time_mult:.1f}x "
         f"phase={phase_fraction} "
         f"cal_trades={trade_count} cal_err={calibration_error:.3f} "
         f"size=${size:.2f}"
