@@ -37,9 +37,9 @@ from signals.oracle_monitor import score_oracle_dispute_risk
 
 # Convergence scoring thresholds
 # Market qualifies when price × time-decay score is high enough
-_CONVERGENCE_HORIZON_DAYS = 7      # only look at markets resolving within 7 days
-_MIN_PRICE_FOR_CONVERGENCE = 0.75  # minimum price to consider "likely YES"
-_MAX_PRICE_FOR_CONVERGENCE = 0.25  # maximum price to consider "likely NO"
+_CONVERGENCE_HORIZON_DAYS = 14     # 14일 이내로 확장
+_MIN_PRICE_FOR_CONVERGENCE = 0.70  # 70%로 낮춤 (75%는 너무 좁음)
+_MAX_PRICE_FOR_CONVERGENCE = 0.30
 
 
 def _time_decay_factor(days_remaining: float) -> float:

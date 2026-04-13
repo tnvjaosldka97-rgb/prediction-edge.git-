@@ -3,641 +3,937 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Prediction Edge — Live Dashboard</title>
+<title>Prediction Edge — Quant Terminal</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #0a0e1a; color: #e0e6f0; font-family: 'Segoe UI', monospace; font-size: 13px; }
+/* ── Reset & Base ─────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg0: #060b18;
+  --bg1: #0a1020;
+  --bg2: #0d1526;
+  --bg3: #112035;
+  --border: #1a2f4a;
+  --border2: #1e3a5f;
+  --text: #d0dae8;
+  --muted: #546e7a;
+  --accent: #4fc3f7;
+  --green: #4caf50;
+  --red: #f44336;
+  --yellow: #ffd740;
+  --orange: #ff7043;
+  --purple: #ce93d8;
+  --teal: #80cbc4;
+}
+html, body { height: 100%; background: var(--bg0); color: var(--text); font-family: 'Segoe UI', 'SF Pro Display', monospace; font-size: 12px; overflow-x: hidden; }
 
-  header {
-    background: #0d1526;
-    border-bottom: 1px solid #1e3a5f;
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  header h1 { font-size: 18px; color: #4fc3f7; letter-spacing: 1px; }
-  header .mode-badge {
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: bold;
-    letter-spacing: 1px;
-  }
-  .mode-dry { background: #1a3a1a; color: #66bb6a; border: 1px solid #2e7d32; }
-  .mode-live { background: #3a1a1a; color: #ef5350; border: 1px solid #c62828; }
-  #clock { color: #78909c; font-size: 12px; }
+/* ── Layout ────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; height: 48px;
+}
+.topbar-left { display: flex; align-items: center; gap: 20px; }
+.logo { font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 1.5px; white-space: nowrap; }
+.logo span { color: var(--yellow); }
 
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 24px; }
-  .stat-card {
-    background: #0d1526;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    padding: 14px 16px;
-  }
-  .stat-card .label { color: #78909c; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-  .stat-card .value { font-size: 22px; font-weight: bold; color: #4fc3f7; }
-  .stat-card .sub { font-size: 11px; color: #546e7a; margin-top: 4px; }
-  .green { color: #66bb6a !important; }
-  .red { color: #ef5350 !important; }
-  .yellow { color: #ffd54f !important; }
+.kpi-strip { display: flex; gap: 0; }
+.kpi {
+  padding: 6px 16px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.kpi:first-child { border-left: 1px solid var(--border); }
+.kpi .label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
+.kpi .val { font-size: 14px; font-weight: 700; }
 
-  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 24px 16px; }
-  .panel-full { grid-column: 1 / -1; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.badge { padding: 3px 10px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+.badge-dry  { background: #1b3a1b; color: #66bb6a; border: 1px solid #2e7d32; }
+.badge-live { background: #3a1a1a; color: #ef5350; border: 1px solid #c62828; }
+#clock { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-  .panel {
-    background: #0d1526;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .panel-header {
-    background: #112035;
-    padding: 10px 16px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: #4fc3f7;
-    border-bottom: 1px solid #1e3a5f;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .panel-header .count { color: #78909c; font-size: 11px; }
+/* ── Tabs ──────────────────────────────────────────────── */
+.tabbar {
+  display: flex; gap: 2px; padding: 8px 20px 0;
+  background: var(--bg1); border-bottom: 1px solid var(--border);
+}
+.tab {
+  padding: 7px 18px;
+  cursor: pointer; color: var(--muted);
+  border-radius: 5px 5px 0 0;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+  border: 1px solid transparent; border-bottom: none;
+  transition: color 0.15s;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); background: var(--bg2); border-color: var(--border); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
 
-  table { width: 100%; border-collapse: collapse; }
-  th { padding: 8px 12px; text-align: left; color: #546e7a; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #1a2f4a; font-weight: normal; }
-  td { padding: 7px 12px; border-bottom: 1px solid #0f1e33; font-size: 12px; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #112035; }
+/* ── Panels ────────────────────────────────────────────── */
+.page { padding: 14px 20px 20px; }
+.row { display: flex; gap: 12px; margin-bottom: 12px; }
+.row > * { min-width: 0; }
+.col-6 { flex: 6; }
+.col-4 { flex: 4; }
+.col-3 { flex: 3; }
+.col-5 { flex: 5; }
 
-  .pill {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 10px;
-    font-weight: bold;
-  }
-  .pill-buy { background: #1a3a1a; color: #66bb6a; }
-  .pill-sell { background: #3a1a1a; color: #ef5350; }
-  .pill-imm { background: #3a1a00; color: #ffd54f; }
-  .pill-high { background: #1a2a3a; color: #4fc3f7; }
-  .pill-med { background: #1a1a3a; color: #9575cd; }
-  .pill-low { background: #1a2a1a; color: #78909c; }
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.ph {
+  background: var(--bg3);
+  padding: 9px 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;
+}
+.ph .right { color: var(--muted); font-size: 10px; font-weight: normal; text-transform: none; letter-spacing: 0; }
+.pb { padding: 12px 14px; }
 
-  .strat-oracle { color: #ffd54f; }
-  .strat-fee { color: #66bb6a; }
-  .strat-conv { color: #4fc3f7; }
-  .strat-flow { color: #ff7043; }
-  .strat-corr { color: #ce93d8; }
-  .strat-copy { color: #80cbc4; }
+/* ── Tables ────────────────────────────────────────────── */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th {
+  padding: 7px 10px; text-align: left;
+  color: var(--muted); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500; cursor: pointer; user-select: none; white-space: nowrap;
+}
+.tbl th:hover { color: var(--text); }
+.tbl th.sorted { color: var(--accent); }
+.tbl td { padding: 6px 10px; border-bottom: 1px solid #0d1a2a; font-size: 11px; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--bg3); }
+.tbl-scroll { max-height: 380px; overflow-y: auto; }
+.tbl-scroll2 { max-height: 480px; overflow-y: auto; }
 
-  .price-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .bar-bg {
-    flex: 1;
-    height: 4px;
-    background: #1a2f4a;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-  .bar-yes { background: #66bb6a; }
-  .bar-no { background: #ef5350; }
+/* ── Pills ─────────────────────────────────────────────── */
+.pill {
+  display: inline-block; padding: 2px 7px;
+  border-radius: 8px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+}
+.p-buy   { background: #1a3a1a; color: #66bb6a; }
+.p-sell  { background: #3a1a1a; color: #ef5350; }
+.p-imm   { background: #3a2000; color: #ffd740; border: 1px solid #7a5000; }
+.p-high  { background: #0d2040; color: #4fc3f7; }
+.p-med   { background: #1a1a40; color: #9575cd; }
+.p-low   { background: #1a2a1a; color: #78909c; }
+.p-arb   { background: #3a1a00; color: #ffd740; }
+.p-near1 { background: #1a3a1a; color: #66bb6a; }
+.p-close { background: #3a0000; color: #ef5350; }
 
-  .gap-positive { color: #ffd54f; font-weight: bold; }
-  .gap-zero { color: #546e7a; }
+/* ── Colors ────────────────────────────────────────────── */
+.g { color: var(--green) !important; }
+.r { color: var(--red) !important; }
+.y { color: var(--yellow) !important; }
+.a { color: var(--accent) !important; }
+.m { color: var(--muted) !important; }
 
-  #loading {
-    text-align: center;
-    padding: 40px;
-    color: #546e7a;
-  }
+/* ── Strategy badge colors ─────────────────────────────── */
+.s-oracle { color: var(--yellow); }
+.s-conv   { color: var(--accent); }
+.s-fee    { color: var(--green); }
+.s-flow   { color: var(--orange); }
+.s-cross  { color: var(--purple); }
+.s-corr   { color: var(--teal); }
+.s-exit   { color: var(--red); }
+.s-copy   { color: #80deea; }
 
-  .refresh-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: #66bb6a;
-    display: inline-block;
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+/* ── Score bars ────────────────────────────────────────── */
+.score-bar { display: inline-flex; align-items: center; gap: 6px; }
+.score-bg { width: 60px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.score-fill { height: 100%; border-radius: 3px; }
 
-  .tabs { display: flex; gap: 2px; padding: 0 24px; margin-bottom: -1px; }
-  .tab {
-    padding: 8px 16px;
-    cursor: pointer;
-    color: #546e7a;
-    border-radius: 6px 6px 0 0;
-    font-size: 12px;
-    border: 1px solid transparent;
-  }
-  .tab.active {
-    color: #4fc3f7;
-    background: #0d1526;
-    border-color: #1e3a5f;
-    border-bottom-color: #0d1526;
-  }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
+/* ── Feed ──────────────────────────────────────────────── */
+.feed-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 12px; border-bottom: 1px solid #0c1827;
+  font-size: 11px; transition: background 0.1s;
+}
+.feed-item:hover { background: var(--bg3); }
+.feed-icon { font-size: 13px; margin-top: 1px; }
+.feed-time { color: var(--muted); font-size: 10px; white-space: nowrap; margin-top: 1px; }
+.feed-body { flex: 1; }
+.feed-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.feed-sub { color: var(--muted); font-size: 10px; margin-top: 1px; }
 
-  .empty { color: #546e7a; text-align: center; padding: 24px; font-size: 12px; }
+/* ── Equity curve ──────────────────────────────────────── */
+.chart-wrap { position: relative; height: 220px; padding: 12px; }
 
-  .pnl-positive { color: #66bb6a; }
-  .pnl-negative { color: #ef5350; }
+/* ── Stat cards (strategy perf) ────────────────────────── */
+.strat-rows { overflow-y: auto; max-height: 260px; }
+.strat-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-bottom: 1px solid #0d1a2a;
+}
+.strat-row:last-child { border-bottom: none; }
+.strat-name { width: 140px; font-size: 11px; font-weight: 600; }
+.strat-num { font-variant-numeric: tabular-nums; font-size: 11px; }
+.winbar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.winbar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #2e7d32, #4caf50); }
 
-  .coin-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 13px 24px 16px; }
-  .coin-card {
-    background: #0d1526;
-    border: 1px solid #1e3a5f;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .coin-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid #1a2f4a;
-  }
-  .coin-symbol { font-size: 16px; font-weight: bold; color: #4fc3f7; }
-  .coin-price { font-size: 20px; font-weight: bold; }
-  .coin-change { font-size: 13px; font-weight: bold; }
-  .coin-chart-wrap { padding: 8px 12px 12px; height: 180px; position: relative; }
+/* ── Risk metrics ──────────────────────────────────────── */
+.risk-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; padding: 12px; }
+.risk-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.risk-card .label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+.risk-card .value { font-size: 20px; font-weight: 700; }
+.risk-card .sub   { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.dd-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.dd-fill { height: 100%; border-radius: 3px; background: var(--red); }
+
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg0); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── Coin chart tab ────────────────────────────────────── */
+.coin-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+.coin-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.coin-hdr { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.coin-sym { font-size: 14px; font-weight: 700; color: var(--accent); }
+.coin-price { font-size: 18px; font-weight: 700; }
+.coin-change { font-size: 12px; font-weight: 600; margin-top: 2px; text-align: right; }
+.coin-chart-wrap { position: relative; height: 160px; padding: 8px 10px; }
+
+/* ── Scanner filter bar ───────────────────────────────── */
+.filter-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.filter-bar input, .filter-bar select {
+  background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
+  padding: 5px 10px; border-radius: 5px; font-size: 11px; outline: none;
+}
+.filter-bar input:focus, .filter-bar select:focus { border-color: var(--accent); }
+.filter-bar label { font-size: 10px; color: var(--muted); }
+.btn { padding: 5px 12px; background: var(--bg3); border: 1px solid var(--border2); color: var(--accent); border-radius: 5px; cursor: pointer; font-size: 11px; }
+.btn:hover { background: var(--border); }
+
+/* ── Opportunities heatmap ────────────────────────────── */
+.opp-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; padding: 12px; }
+.opp-item {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px; cursor: pointer;
+  transition: border-color 0.15s;
+}
+.opp-item:hover { border-color: var(--accent); }
+.opp-q { font-size: 11px; font-weight: 600; margin-bottom: 5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.opp-price { font-size: 12px; font-weight: 700; }
+.opp-edge  { font-size: 11px; color: var(--yellow); }
+
+/* ── Empty state ──────────────────────────────────────── */
+.empty { color: var(--muted); text-align: center; padding: 30px; font-size: 11px; }
 </style>
 </head>
 <body>
 
-<header>
-  <div>
-    <h1>⚡ Prediction Edge</h1>
+<!-- ══ TOP BAR ══════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">&#9889; PREDICTION <span>EDGE</span></div>
+    <div class="kpi-strip">
+      <div class="kpi"><div class="label">총 자산</div><div class="val a" id="kpi-total">--</div></div>
+      <div class="kpi"><div class="label">실현 P&L</div><div class="val" id="kpi-rpnl">--</div></div>
+      <div class="kpi"><div class="label">미실현 P&L</div><div class="val" id="kpi-upnl">--</div></div>
+      <div class="kpi"><div class="label">드로다운</div><div class="val" id="kpi-dd">--</div></div>
+      <div class="kpi"><div class="label">체결/거부</div><div class="val" id="kpi-orders">--</div></div>
+      <div class="kpi"><div class="label">활성마켓</div><div class="val a" id="kpi-markets">--</div></div>
+    </div>
   </div>
-  <div style="display:flex;align-items:center;gap:16px;">
-    <span class="refresh-dot"></span>
+  <div class="topbar-right">
+    <div class="dot"></div>
     <span id="clock">--:--:--</span>
-    <span id="mode-badge" class="mode-badge mode-dry">DRY RUN</span>
-  </div>
-</header>
-
-<!-- Stats Row -->
-<div class="grid" id="stats-row">
-  <div class="stat-card">
-    <div class="label">총 자산</div>
-    <div class="value" id="s-total">--</div>
-    <div class="sub" id="s-pnl">--</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">활성 마켓</div>
-    <div class="value" id="s-markets">--</div>
-    <div class="sub" id="s-closing">마감 임박 --</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">아비트라지 기회</div>
-    <div class="value yellow" id="s-arb">--</div>
-    <div class="sub" id="s-certain">확실한 토큰 --</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">체결 / 거부</div>
-    <div class="value" id="s-trades">--</div>
-    <div class="sub" id="s-count">총 거래 --회</div>
+    <span id="mode-badge" class="badge badge-dry">DRY RUN</span>
   </div>
 </div>
 
-<!-- Tabs -->
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('markets')">시장 현황</div>
-  <div class="tab" onclick="switchTab('opps')">기회 탐지</div>
-  <div class="tab" onclick="switchTab('signals')">신호 내역</div>
-  <div class="tab" onclick="switchTab('trades')">거래 내역</div>
-  <div class="tab" onclick="switchTab('positions')">포지션</div>
-  <div class="tab" onclick="switchTab('coins')">코인 차트</div>
+<!-- ══ TAB BAR ══════════════════════════════════════════════════════════ -->
+<div class="tabbar">
+  <div class="tab active" data-tab="dashboard">&#128202; 대시보드</div>
+  <div class="tab" data-tab="scanner">&#128269; 마켓 스캐너</div>
+  <div class="tab" data-tab="signals">&#128225; 신호 분석</div>
+  <div class="tab" data-tab="risk">&#9878;&#65039; 리스크</div>
+  <div class="tab" data-tab="coins">&#128200; 코인 차트</div>
 </div>
 
-<!-- Markets Tab -->
-<div id="tab-markets" class="tab-content active panels" style="padding-top:13px;">
-  <div class="panel panel-full">
-    <div class="panel-header">
-      <span>상위 마켓 (거래량순)</span>
-      <span class="count" id="market-count">--</span>
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: DASHBOARD
+══════════════════════════════════════════════════════════════════════════ -->
+<div id="pane-dashboard" class="tab-pane active page">
+  <div class="row">
+    <!-- Equity Curve -->
+    <div class="panel col-6">
+      <div class="ph">자산 곡선 (30일) <span class="right" id="eq-return">--</span></div>
+      <div class="chart-wrap"><canvas id="chart-equity"></canvas></div>
     </div>
-    <div style="max-height:480px;overflow-y:auto;">
-    <table>
-      <thead><tr>
-        <th>마켓</th>
-        <th>YES</th>
-        <th>NO</th>
-        <th>합계</th>
-        <th>24h 거래량</th>
-        <th>유동성</th>
-        <th>만료</th>
-        <th>카테고리</th>
-      </tr></thead>
-      <tbody id="markets-tbody"><tr><td colspan="8" class="empty">데이터 로딩 중...</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-</div>
-
-<!-- Opportunities Tab -->
-<div id="tab-opps" class="tab-content panels" style="padding-top:13px;">
-  <div class="panel">
-    <div class="panel-header">
-      <span>⏰ 마감 임박 (3일 이내)</span>
-      <span class="count" id="closing-count">--</span>
-    </div>
-    <div style="max-height:400px;overflow-y:auto;">
-    <table>
-      <thead><tr><th>마켓</th><th>YES</th><th>NO</th><th>갭</th><th>만료</th></tr></thead>
-      <tbody id="closing-tbody"><tr><td colspan="5" class="empty">로딩 중...</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-  <div class="panel">
-    <div class="panel-header">
-      <span>🎯 확실한 토큰 (p &gt; 0.95)</span>
-      <span class="count" id="certain-count">--</span>
-    </div>
-    <div style="max-height:400px;overflow-y:auto;">
-    <table>
-      <thead><tr><th>마켓</th><th>결과</th><th>가격</th><th>잔여수익</th><th>만료</th></tr></thead>
-      <tbody id="certain-tbody"><tr><td colspan="5" class="empty">로딩 중...</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-</div>
-
-<!-- Signals Tab -->
-<div id="tab-signals" class="tab-content panels" style="padding-top:13px;">
-  <div class="panel panel-full">
-    <div class="panel-header">
-      <span>최근 신호</span>
-      <span class="count" id="signal-count">--</span>
-    </div>
-    <div style="max-height:480px;overflow-y:auto;">
-    <table>
-      <thead><tr><th>시각</th><th>전략</th><th>방향</th><th>모델 확률</th><th>시장 확률</th><th>순 엣지</th><th>신뢰도</th><th>긴급도</th></tr></thead>
-      <tbody id="signals-tbody"><tr><td colspan="8" class="empty">신호 대기 중...</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-</div>
-
-<!-- Trades Tab -->
-<div id="tab-trades" class="tab-content panels" style="padding-top:13px;">
-  <div class="panel panel-full">
-    <div class="panel-header">
-      <span>거래 내역 (최근 50건)</span>
-    </div>
-    <div style="max-height:480px;overflow-y:auto;">
-    <table>
-      <thead><tr><th>시각</th><th>전략</th><th>방향</th><th>체결가</th><th>수량(주)</th><th>금액($)</th><th>수수료</th></tr></thead>
-      <tbody id="trades-tbody"><tr><td colspan="7" class="empty">거래 내역 없음 (시뮬레이션 대기 중)</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-</div>
-
-<!-- Positions Tab -->
-<div id="tab-positions" class="tab-content panels" style="padding-top:13px;">
-  <div class="panel panel-full">
-    <div class="panel-header">
-      <span>현재 포지션</span>
-    </div>
-    <div style="max-height:480px;overflow-y:auto;">
-    <table>
-      <thead><tr><th>토큰</th><th>방향</th><th>평균단가</th><th>현재가</th><th>수량</th><th>미실현 손익</th><th>전략</th></tr></thead>
-      <tbody id="positions-tbody"><tr><td colspan="7" class="empty">포지션 없음</td></tr></tbody>
-    </table>
-    </div>
-  </div>
-</div>
-
-<!-- Coins Tab -->
-<div id="tab-coins" class="tab-content">
-  <div class="coin-grid">
-    <div class="coin-card" id="card-BTC">
-      <div class="coin-header">
-        <span class="coin-symbol">₿ BTC</span>
-        <div style="text-align:right;">
-          <div class="coin-price" id="price-BTC">--</div>
-          <div class="coin-change" id="change-BTC">--</div>
-        </div>
+    <!-- Strategy Performance -->
+    <div class="panel col-4">
+      <div class="ph">전략별 성과 <span class="right">신호 → 트레이드 → 순익</span></div>
+      <div class="strat-rows" id="strat-rows">
+        <div class="empty">로딩 중...</div>
       </div>
+    </div>
+  </div>
+  <div class="row">
+    <!-- Live Feed -->
+    <div class="panel" style="flex:1;">
+      <div class="ph">실시간 신호 · 트레이드 피드 <span class="right" id="feed-count">--</span></div>
+      <div id="live-feed" style="max-height:260px;overflow-y:auto;"></div>
+    </div>
+    <!-- Opportunities -->
+    <div class="panel col-4">
+      <div class="ph">지금 최고 기회 <span class="right" id="opp-count">--</span></div>
+      <div id="top-opps" style="max-height:260px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: SCANNER
+══════════════════════════════════════════════════════════════════════════ -->
+<div id="pane-scanner" class="tab-pane page" style="padding-top:10px;">
+  <div class="panel">
+    <div class="ph">마켓 스캐너 <span class="right" id="scanner-count">--</span></div>
+    <div class="filter-bar">
+      <label>검색</label>
+      <input id="scanner-q" type="text" placeholder="마켓 검색..." style="width:240px;">
+      <label>최소 점수</label>
+      <select id="scanner-score">
+        <option value="0">전체</option>
+        <option value="30">30+</option>
+        <option value="50" selected>50+</option>
+        <option value="70">70+</option>
+      </select>
+      <label>카테고리</label>
+      <select id="scanner-cat">
+        <option value="">전체</option>
+        <option value="politics">정치</option>
+        <option value="crypto">크립토</option>
+        <option value="sports">스포츠</option>
+        <option value="economics">경제</option>
+      </select>
+      <label>만료</label>
+      <select id="scanner-days">
+        <option value="0">전체</option>
+        <option value="3">3일 이내</option>
+        <option value="7">7일 이내</option>
+        <option value="14">14일 이내</option>
+      </select>
+      <button class="btn" onclick="renderScanner()">필터 적용</button>
+    </div>
+    <div class="tbl-scroll2">
+    <table class="tbl" id="scanner-tbl">
+      <thead><tr>
+        <th onclick="sortScanner('score')" class="sorted">점수 ▼</th>
+        <th onclick="sortScanner('question')">마켓</th>
+        <th onclick="sortScanner('yes')">YES</th>
+        <th onclick="sortScanner('no')">NO</th>
+        <th onclick="sortScanner('gap')">갭</th>
+        <th onclick="sortScanner('volume_24h')">24h 거래량</th>
+        <th onclick="sortScanner('liquidity')">유동성</th>
+        <th onclick="sortScanner('days')">만료</th>
+        <th>기회</th>
+        <th>분쟁리스크</th>
+      </tr></thead>
+      <tbody id="scanner-tbody"><tr><td colspan="10" class="empty">로딩 중...</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: SIGNALS
+══════════════════════════════════════════════════════════════════════════ -->
+<div id="pane-signals" class="tab-pane page">
+  <div class="row">
+    <!-- Win rate chart -->
+    <div class="panel col-5">
+      <div class="ph">전략별 승률 (신호 기반)</div>
+      <div style="position:relative;height:220px;padding:12px;"><canvas id="chart-winrate"></canvas></div>
+    </div>
+    <!-- Signal distribution -->
+    <div class="panel col-3">
+      <div class="ph">긴급도 분포</div>
+      <div style="position:relative;height:220px;padding:12px;"><canvas id="chart-urgency"></canvas></div>
+    </div>
+    <!-- Avg edge -->
+    <div class="panel col-3">
+      <div class="ph">전략별 평균 엣지(%)</div>
+      <div style="position:relative;height:220px;padding:12px;"><canvas id="chart-edge"></canvas></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="ph">최근 신호 상세 <span class="right" id="sig-count">--</span></div>
+    <div class="tbl-scroll2">
+    <table class="tbl">
+      <thead><tr>
+        <th>시각</th><th>전략</th><th>방향</th><th>모델확률</th><th>시장확률</th><th>순엣지</th><th>신뢰도</th><th>긴급도</th><th>마켓</th>
+      </tr></thead>
+      <tbody id="signals-tbody"><tr><td colspan="9" class="empty">신호 대기 중...</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: RISK
+══════════════════════════════════════════════════════════════════════════ -->
+<div id="pane-risk" class="tab-pane page">
+  <div class="row">
+    <div class="panel" style="flex:1;">
+      <div class="ph">핵심 리스크 지표</div>
+      <div class="risk-grid" id="risk-grid">
+        <div class="empty" style="grid-column:1/-1;">로딩 중...</div>
+      </div>
+    </div>
+    <div class="panel col-3">
+      <div class="ph">포지션 집중도</div>
+      <div style="position:relative;height:200px;padding:12px;"><canvas id="chart-conc"></canvas></div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="panel" style="flex:1;">
+      <div class="ph">현재 포지션</div>
+      <div class="tbl-scroll">
+      <table class="tbl">
+        <thead><tr><th>토큰</th><th>방향</th><th>평균단가</th><th>현재가</th><th>수량</th><th>평가금액</th><th>미실현손익</th></tr></thead>
+        <tbody id="pos-tbody"><tr><td colspan="7" class="empty">포지션 없음</td></tr></tbody>
+      </table>
+      </div>
+    </div>
+    <div class="panel col-4">
+      <div class="ph">거래 내역 <span class="right">최근 30건</span></div>
+      <div class="tbl-scroll">
+      <table class="tbl">
+        <thead><tr><th>시각</th><th>전략</th><th>방향</th><th>체결가</th><th>수량</th><th>금액</th></tr></thead>
+        <tbody id="trades-tbody"><tr><td colspan="6" class="empty">거래 내역 없음</td></tr></tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     TAB: COINS
+══════════════════════════════════════════════════════════════════════════ -->
+<div id="pane-coins" class="tab-pane page">
+  <div class="coin-grid">
+    <div class="coin-card">
+      <div class="coin-hdr"><span class="coin-sym">&#8383; Bitcoin</span><div><div class="coin-price a" id="price-BTC">--</div><div class="coin-change" id="change-BTC">--</div></div></div>
       <div class="coin-chart-wrap"><canvas id="chart-BTC"></canvas></div>
     </div>
-    <div class="coin-card" id="card-ETH">
-      <div class="coin-header">
-        <span class="coin-symbol">Ξ ETH</span>
-        <div style="text-align:right;">
-          <div class="coin-price" id="price-ETH">--</div>
-          <div class="coin-change" id="change-ETH">--</div>
-        </div>
-      </div>
+    <div class="coin-card">
+      <div class="coin-hdr"><span class="coin-sym">&#926; Ethereum</span><div><div class="coin-price a" id="price-ETH">--</div><div class="coin-change" id="change-ETH">--</div></div></div>
       <div class="coin-chart-wrap"><canvas id="chart-ETH"></canvas></div>
     </div>
-    <div class="coin-card" id="card-SOL">
-      <div class="coin-header">
-        <span class="coin-symbol">◎ SOL</span>
-        <div style="text-align:right;">
-          <div class="coin-price" id="price-SOL">--</div>
-          <div class="coin-change" id="change-SOL">--</div>
-        </div>
-      </div>
+    <div class="coin-card">
+      <div class="coin-hdr"><span class="coin-sym">&#9675; Solana</span><div><div class="coin-price a" id="price-SOL">--</div><div class="coin-change" id="change-SOL">--</div></div></div>
       <div class="coin-chart-wrap"><canvas id="chart-SOL"></canvas></div>
     </div>
-    <div class="coin-card" id="card-MATIC">
-      <div class="coin-header">
-        <span class="coin-symbol">⬡ MATIC</span>
-        <div style="text-align:right;">
-          <div class="coin-price" id="price-MATIC">--</div>
-          <div class="coin-change" id="change-MATIC">--</div>
-        </div>
-      </div>
+    <div class="coin-card">
+      <div class="coin-hdr"><span class="coin-sym">&#11041; Polygon</span><div><div class="coin-price a" id="price-MATIC">--</div><div class="coin-change" id="change-MATIC">--</div></div></div>
       <div class="coin-chart-wrap"><canvas id="chart-MATIC"></canvas></div>
     </div>
   </div>
-  <div style="text-align:center;color:#546e7a;font-size:11px;padding:4px 0 12px;">
-    출처: CoinGecko · 60초 캐시 · 7일 차트 (4시간 간격)
+  <div style="text-align:center;color:var(--muted);font-size:10px;padding:8px 0;">
+    출처: CoinGecko Free API · 60초 서버캐싱 · 7일 4시간 봉
   </div>
 </div>
 
+<!-- ══ SCRIPTS ═════════════════════════════════════════════════════════ -->
 <script>
-let currentTab = 'markets';
+'use strict';
+// ── Tab switching ─────────────────────────────────────────────────────
+const tabPanes = document.querySelectorAll('.tab-pane');
+const tabBtns  = document.querySelectorAll('.tab');
+let activeTab  = 'dashboard';
 
-function switchTab(name) {
-  const names = ['markets','opps','signals','trades','positions','coins'];
-  document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', names[i] === name);
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.tab;
+    tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+    tabPanes.forEach(p => p.classList.toggle('active', p.id === 'pane-' + t));
+    activeTab = t;
+    if (t === 'coins')    loadCoinCharts();
+    if (t === 'signals')  drawSignalCharts();
+    if (t === 'scanner')  renderScanner();
   });
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  currentTab = name;
-  if (name === 'coins') updateCoins(true);
-}
+});
 
-function fmt(n, dec=2) { return n != null ? Number(n).toFixed(dec) : '--'; }
-function fmtUSD(n) { return '$' + fmt(n, 2); }
-function pct(n) { return fmt(n*100, 2) + '%'; }
+// ── Utilities ─────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt  = (n, d=2) => n != null ? Number(n).toFixed(d) : '--';
+const fmtK = n => n >= 1e6 ? '$'+(n/1e6).toFixed(1)+'M' : n >= 1e3 ? '$'+(n/1e3).toFixed(0)+'K' : '$'+n;
+const pct  = n => fmt(n*100, 2)+'%';
+const sign = (n, cls1, cls2) => '<span class="'+(n>=0?cls1:cls2)+'">'+(n>=0?'+':'')+fmt(n,2)+'</span>';
+
+async function api(url) {
+  try { const r = await fetch(url); return r.ok ? await r.json() : null; }
+  catch { return null; }
+}
 
 function stratClass(s) {
   if (!s) return '';
-  if (s.includes('oracle')) return 'strat-oracle';
-  if (s.includes('fee')) return 'strat-fee';
-  if (s.includes('conv') || s.includes('closing')) return 'strat-conv';
-  if (s.includes('flow')) return 'strat-flow';
-  if (s.includes('corr')) return 'strat-corr';
-  if (s.includes('copy')) return 'strat-copy';
+  if (s.includes('oracle')) return 's-oracle';
+  if (s.includes('conv') || s.includes('closing')) return 's-conv';
+  if (s.includes('fee')) return 's-fee';
+  if (s.includes('flow')) return 's-flow';
+  if (s.includes('cross')) return 's-cross';
+  if (s.includes('corr')) return 's-corr';
+  if (s.includes('exit')) return 's-exit';
+  if (s.includes('copy')) return 's-copy';
   return '';
 }
-
-async function fetchJSON(url) {
-  try {
-    const r = await fetch(url);
-    return await r.json();
-  } catch(e) { return null; }
+function urgClass(u) {
+  return {IMMEDIATE:'p-imm',HIGH:'p-high',MEDIUM:'p-med',LOW:'p-low'}[u] || 'p-low';
 }
 
-async function updateStats() {
-  const [stats, port] = await Promise.all([fetchJSON('/api/stats'), fetchJSON('/api/portfolio')]);
-  if (stats) {
-    document.getElementById('s-markets').textContent = stats.total_markets;
-    document.getElementById('s-closing').textContent = `마감 3일내 ${stats.closing_3d} / 7일내 ${stats.closing_7d}`;
-    document.getElementById('s-arb').textContent = stats.arb_opps;
-    document.getElementById('s-certain').textContent = `확실한 토큰 ${stats.near_certain}개`;
-    document.getElementById('clock').textContent = stats.timestamp;
-  }
+// ── TOP BAR ───────────────────────────────────────────────────────────
+async function updateTopbar() {
+  const [port, stats] = await Promise.all([api('/api/portfolio'), api('/api/stats')]);
   if (port) {
-    document.getElementById('s-total').textContent = fmtUSD(port.total_value);
-    const pnl = port.realized_pnl + port.unrealized_pnl;
-    const pnlEl = document.getElementById('s-pnl');
-    pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtUSD(pnl) + ' P&L | 드로다운 ' + fmt(port.drawdown, 2) + '%';
-    pnlEl.className = 'sub ' + (pnl >= 0 ? 'pnl-positive' : 'pnl-negative');
-    document.getElementById('s-trades').textContent = `${port.submitted} / ${port.rejected}`;
-    document.getElementById('s-count').textContent = `누적 거래 ${port.trade_count}회`;
-    const badge = document.getElementById('mode-badge');
-    if (!port.dry_run) { badge.textContent = 'LIVE'; badge.className = 'mode-badge mode-live'; }
-    else { badge.textContent = 'DRY RUN'; badge.className = 'mode-badge mode-dry'; }
+    const tot = port.total_value;
+    $('kpi-total').textContent = '$' + Number(tot).toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const rpnl = $('kpi-rpnl');
+    rpnl.innerHTML = sign(port.realized_pnl,'g','r') + '<span style="color:var(--muted)"> R</span>';
+    const upnl = $('kpi-upnl');
+    upnl.innerHTML = sign(port.unrealized_pnl,'g','r') + '<span style="color:var(--muted)"> U</span>';
+    const dd = $('kpi-dd');
+    dd.textContent = fmt(port.drawdown, 2) + '%';
+    dd.className = 'val ' + (port.drawdown > 12 ? 'r' : port.drawdown > 6 ? 'y' : 'g');
+    $('kpi-orders').textContent = (port.submitted||0) + ' / ' + (port.rejected||0);
+    const badge = $('mode-badge');
+    if (!port.dry_run) { badge.textContent='LIVE'; badge.className='badge badge-live'; }
+    else { badge.textContent='DRY RUN'; badge.className='badge badge-dry'; }
+  }
+  if (stats) {
+    $('kpi-markets').textContent = stats.total_markets || '--';
+    $('clock').textContent = stats.timestamp || '--';
   }
 }
 
-async function updateMarkets() {
-  if (currentTab !== 'markets') return;
-  const data = await fetchJSON('/api/markets');
-  if (!data) return;
-  document.getElementById('market-count').textContent = data.length + '개';
-  const tbody = document.getElementById('markets-tbody');
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">마켓 데이터 없음</td></tr>'; return; }
-  tbody.innerHTML = data.map(m => {
-    const gap = 1 - (m.yes_price||0) - (m.no_price||0);
-    const gapStr = gap > 0.005 ? `<span class="gap-positive">+${fmt(gap,4)}</span>` : `<span class="gap-zero">${fmt(gap,4)}</span>`;
-    const yesPct = ((m.yes_price||0)*100).toFixed(0);
-    return `<tr>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.question}">${m.question}</td>
-      <td>
-        <div class="price-bar">
-          <span class="green">${fmt(m.yes_price,3)}</span>
-          <div class="bar-bg"><div class="bar-fill bar-yes" style="width:${yesPct}%"></div></div>
-        </div>
-      </td>
-      <td><span class="red">${fmt(m.no_price,3)}</span></td>
-      <td>${gapStr}</td>
-      <td>${m.volume_24h > 1000 ? '$' + (m.volume_24h/1000).toFixed(0) + 'K' : '$'+m.volume_24h}</td>
-      <td>${m.liquidity > 1000 ? '$' + (m.liquidity/1000).toFixed(0) + 'K' : '$'+m.liquidity}</td>
-      <td>${m.days_to_resolution < 1 ? '<span class="red">'+fmt(m.days_to_resolution*24,0)+'h</span>' : m.days_to_resolution < 3 ? '<span class="yellow">'+fmt(m.days_to_resolution,1)+'d</span>' : fmt(m.days_to_resolution,1)+'d'}</td>
-      <td style="color:#78909c;">${m.category||'-'}</td>
-    </tr>`;
-  }).join('');
-}
+// ── EQUITY CURVE ──────────────────────────────────────────────────────
+let _eqChart = null;
+async function updateEquityCurve() {
+  const data = await api('/api/equity_curve');
+  if (!data || !data.length) return;
+  const labels = data.map(p => {
+    const d = new Date(p.t);
+    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + 'h';
+  });
+  const values = data.map(p => p.v);
+  const first = values[0], last = values[values.length-1];
+  const ret = ((last - first) / first * 100);
+  $('eq-return').innerHTML = '<span class="'+(ret>=0?'g':'r')+'">'+(ret>=0?'+':'')+fmt(ret,2)+'%</span> 30일 수익';
 
-async function updateOpps() {
-  if (currentTab !== 'opps') return;
-  const data = await fetchJSON('/api/opportunities');
-  if (!data) return;
-  document.getElementById('closing-count').textContent = (data.closing_soon||[]).length + '개';
-  document.getElementById('certain-count').textContent = (data.near_certain||[]).length + '개';
-  const ct = document.getElementById('closing-tbody');
-  ct.innerHTML = (data.closing_soon||[]).map(m =>
-    `<tr>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.question}">${m.question}</td>
-      <td class="green">${fmt(m.yes,3)}</td>
-      <td class="red">${fmt(m.no,3)}</td>
-      <td>${m.gap > 0.005 ? '<span class="gap-positive">+'+fmt(m.gap,4)+'</span>' : '<span class="gap-zero">'+fmt(m.gap,4)+'</span>'}</td>
-      <td class="${m.days < 1 ? 'red' : 'yellow'}">${m.days < 1 ? fmt(m.days*24,0)+'h' : fmt(m.days,1)+'d'}</td>
-    </tr>`
-  ).join('') || '<tr><td colspan="5" class="empty">마감 임박 마켓 없음</td></tr>';
-  const nt = document.getElementById('certain-tbody');
-  nt.innerHTML = (data.near_certain||[]).map(m =>
-    `<tr>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.question}">${m.question}</td>
-      <td>${m.outcome}</td>
-      <td class="green">${fmt(m.price,4)}</td>
-      <td class="yellow">${pct(m.remaining)}</td>
-      <td>${fmt(m.days,1)}d</td>
-    </tr>`
-  ).join('') || '<tr><td colspan="5" class="empty">확실한 토큰 없음</td></tr>';
-}
-
-async function updateSignals() {
-  if (currentTab !== 'signals') return;
-  const data = await fetchJSON('/api/signals');
-  if (!data) return;
-  document.getElementById('signal-count').textContent = data.length + '건';
-  const tbody = document.getElementById('signals-tbody');
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">신호 대기 중 — 시스템이 마켓 분석 중입니다</td></tr>'; return; }
-  tbody.innerHTML = data.map(s => {
-    const urg = s.urgency === 'IMMEDIATE' ? 'pill-imm' : s.urgency === 'HIGH' ? 'pill-high' : s.urgency === 'MEDIUM' ? 'pill-med' : 'pill-low';
-    return `<tr>
-      <td style="color:#78909c;">${s.time}</td>
-      <td class="${stratClass(s.strategy)}">${s.strategy}</td>
-      <td><span class="pill ${s.direction==='BUY'?'pill-buy':'pill-sell'}">${s.direction}</span></td>
-      <td>${pct(s.model_prob)}</td>
-      <td>${pct(s.market_prob)}</td>
-      <td class="${s.net_edge > 0 ? 'green' : 'red'}">${s.net_edge > 0 ? '+' : ''}${pct(s.net_edge)}</td>
-      <td>${pct(s.confidence)}</td>
-      <td><span class="pill ${urg}">${s.urgency}</span></td>
-    </tr>`;
-  }).join('');
-}
-
-async function updateTrades() {
-  if (currentTab !== 'trades') return;
-  const data = await fetchJSON('/api/trades');
-  if (!data) return;
-  const tbody = document.getElementById('trades-tbody');
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">거래 내역 없음 — 신호 발생 시 자동 체결됩니다</td></tr>'; return; }
-  tbody.innerHTML = data.map(t =>
-    `<tr>
-      <td style="color:#78909c;">${t.time}</td>
-      <td class="${stratClass(t.strategy)}">${t.strategy||'-'}</td>
-      <td><span class="pill ${t.side==='BUY'?'pill-buy':'pill-sell'}">${t.side}</span></td>
-      <td>${fmt(t.fill_price,4)}</td>
-      <td>${fmt(t.fill_size,4)}</td>
-      <td class="green">$${fmt(t.fill_price*t.fill_size,2)}</td>
-      <td style="color:#546e7a;">$${fmt(t.fee_paid,4)}</td>
-    </tr>`
-  ).join('');
-}
-
-async function updatePositions() {
-  if (currentTab !== 'positions') return;
-  const data = await fetchJSON('/api/portfolio');
-  if (!data) return;
-  const tbody = document.getElementById('positions-tbody');
-  if (!data.positions || !data.positions.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">포지션 없음</td></tr>'; return;
-  }
-  tbody.innerHTML = data.positions.map(p =>
-    `<tr>
-      <td style="font-family:monospace;color:#78909c;">${p.token_id}</td>
-      <td><span class="pill ${p.side==='BUY'?'pill-buy':'pill-sell'}">${p.side}</span></td>
-      <td>${fmt(p.avg_entry,4)}</td>
-      <td>${fmt(p.current_price,4)}</td>
-      <td>${fmt(p.size_shares,4)}</td>
-      <td class="${p.unrealized_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${p.unrealized_pnl >= 0 ? '+' : ''}$${fmt(p.unrealized_pnl,3)}</td>
-      <td class="${stratClass(p.strategy)}">${p.strategy||'-'}</td>
-    </tr>`
-  ).join('');
-}
-
-// ── Coin Charts ──────────────────────────────────────────────────────────────
-const _charts = {};
-const _coinColors = { BTC: '#f7931a', ETH: '#627eea', SOL: '#9945ff', MATIC: '#8247e5' };
-let _coinsLoaded = false;
-
-function _makeChart(coin, labels, prices) {
-  const ctx = document.getElementById('chart-' + coin);
-  if (!ctx) return;
-  const color = _coinColors[coin] || '#4fc3f7';
-  if (_charts[coin]) _charts[coin].destroy();
-  _charts[coin] = new Chart(ctx, {
+  const ctx = $('chart-equity');
+  if (_eqChart) _eqChart.destroy();
+  const color = ret >= 0 ? '#4caf50' : '#f44336';
+  _eqChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
       datasets: [{
-        data: prices,
+        data: values,
         borderColor: color,
-        backgroundColor: color + '22',
-        fill: true,
-        tension: 0.3,
-        pointRadius: 0,
-        borderWidth: 2,
+        backgroundColor: color + '15',
+        fill: true, tension: 0.3,
+        pointRadius: 0, borderWidth: 2,
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => '$' + Number(ctx.raw).toLocaleString() }
-      }},
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => '$' + Number(c.raw).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) } }
+      },
       scales: {
-        x: { display: false },
-        y: {
-          grid: { color: '#1a2f4a' },
-          ticks: { color: '#546e7a', font: { size: 10 },
-            callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(1) + 'K' : v) }
-        }
+        x: { display: true, ticks: { color:'#546e7a', maxTicksLimit:8, font:{size:9} }, grid: { color:'#0d1a2a' } },
+        y: { ticks: { color:'#546e7a', font:{size:9}, callback: v => '$'+(v>=1000?(v/1000).toFixed(1)+'K':v.toFixed(0)) }, grid: { color:'#0d1a2a' } }
       }
     }
   });
 }
 
-let _coinsFetching = false;
-async function updateCoins(force = false) {
-  if (currentTab !== 'coins' && !force) return;
-  if (_coinsFetching) return;
-  _coinsFetching = true;
-  try {
-    const prices = await fetchJSON('/api/prices');
-    if (prices) {
-      for (const [sym, d] of Object.entries(prices)) {
-        const el = document.getElementById('price-' + sym);
-        const ch = document.getElementById('change-' + sym);
-        if (el) el.textContent = '$' + Number(d.price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        if (ch) {
-          const up = d.change_24h >= 0;
-          ch.textContent = (up ? '▲ +' : '▼ ') + d.change_24h.toFixed(2) + '%';
-          ch.style.color = up ? '#66bb6a' : '#ef5350';
-        }
+// ── STRATEGY PERFORMANCE ──────────────────────────────────────────────
+async function updateStratPerf() {
+  const data = await api('/api/strategy_stats');
+  if (!data || !data.length) return;
+  const el = $('strat-rows');
+  el.innerHTML = data.map(s => {
+    const wr = s.win_rate != null ? s.win_rate : 50;
+    const wrColor = wr >= 70 ? 'var(--green)' : wr >= 55 ? 'var(--yellow)' : 'var(--red)';
+    const pnlSign = s.net_pnl >= 0 ? 'g' : 'r';
+    return '<div class="strat-row">' +
+      '<div class="strat-name ' + stratClass(s.strategy) + '">' + s.strategy.replace(/_/g,' ') + '</div>' +
+      '<div style="flex:1;"><div class="winbar"><div class="winbar-fill" style="width:'+wr+'%;background:'+wrColor+';"></div></div></div>' +
+      '<div class="strat-num m">' + s.signals + '건</div>' +
+      '<div class="strat-num" style="width:42px;color:'+wrColor+';">' + (s.win_rate != null ? wr+'%' : '--') + '</div>' +
+      '<div class="strat-num y" style="width:50px;">' + (s.avg_edge > 0 ? '+'+s.avg_edge+'%' : '--') + '</div>' +
+      '<div class="strat-num ' + pnlSign + '" style="width:65px;">' + (s.net_pnl >= 0 ? '+' : '') + '$' + fmt(s.net_pnl,1) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── LIVE FEED ─────────────────────────────────────────────────────────
+async function updateFeed() {
+  const data = await api('/api/feed');
+  if (!data) return;
+  $('feed-count').textContent = data.length + '건';
+  const el = $('live-feed');
+  el.innerHTML = data.slice(0,40).map(e => {
+    const isTrade = e.type === 'trade';
+    const icon = isTrade ? '&#x1F4B0;' : e.urgency === 'IMMEDIATE' ? '&#x1F534;' : e.urgency === 'HIGH' ? '&#x1F7E1;' : '&#x1F7E2;';
+    const strat = '<span class="'+stratClass(e.strategy)+'">'+(e.strategy||'').replace(/_/g,' ')+'</span>';
+    let main = '';
+    if (isTrade) {
+      main = strat + ' <span class="pill p-buy">'+e.direction+'</span> <span class="a">@'+fmt(e.fill_price,4)+'</span> <span class="m">x'+fmt(e.size_shares,2)+'</span>';
+    } else {
+      const urg = '<span class="pill '+urgClass(e.urgency)+'">'+e.urgency+'</span>';
+      main = strat + ' <span class="pill p-buy">'+e.direction+'</span> <span class="y">+'+fmt(e.net_edge,1)+'%</span> '+urg;
+    }
+    return '<div class="feed-item">' +
+      '<div class="feed-icon">'+icon+'</div>' +
+      '<div class="feed-body">' +
+        '<div class="feed-main">'+main+'</div>' +
+        '<div class="feed-sub">'+e.condition_id+' &middot; '+e.time+'</div>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<div class="empty">피드 대기 중...</div>';
+}
+
+// ── TOP OPPORTUNITIES ─────────────────────────────────────────────────
+async function updateTopOpps() {
+  const data = await api('/api/scanner');
+  if (!data) return;
+  const top = data.filter(m => m.score >= 30).slice(0, 8);
+  $('opp-count').textContent = data.filter(m => m.score >= 30).length + '개';
+  const el = $('top-opps');
+  el.innerHTML = top.map(m => {
+    const flags = m.flags.map(f => '<span class="pill '+(f==='ARB'?'p-arb':f==='NEAR1'?'p-near1':'p-close')+'">'+f+'</span>').join(' ');
+    const gap = m.gap > 0.005 ? '<span class="y">갭 +'+fmt(m.gap*100,2)+'%</span>' : '';
+    return '<div class="opp-item">' +
+      '<div class="opp-q" title="'+m.question+'">'+m.question+'</div>' +
+      '<div class="opp-meta">' +
+        '<span class="opp-price g">YES '+fmt(m.yes,3)+'</span>' +
+        '<span class="opp-price r">NO '+fmt(m.no,3)+'</span>' +
+        gap + ' ' + flags +
+        '<span class="m">'+(m.days < 1 ? (m.days*24).toFixed(0)+'h' : fmt(m.days,1)+'d')+'</span>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<div class="empty">기회 탐색 중...</div>';
+}
+
+// ── SCANNER ───────────────────────────────────────────────────────────
+let _scannerData = [];
+let _sortKey = 'score';
+let _sortAsc = false;
+
+function sortScanner(key) {
+  if (_sortKey === key) _sortAsc = !_sortAsc;
+  else { _sortKey = key; _sortAsc = false; }
+  document.querySelectorAll('#scanner-tbl th').forEach(th => th.classList.remove('sorted'));
+  const headers = ['score','question','yes','no','gap','volume_24h','liquidity','days'];
+  const idx = headers.indexOf(key);
+  if (idx >= 0) document.querySelectorAll('#scanner-tbl th')[idx].classList.add('sorted');
+  renderScanner();
+}
+
+async function loadScanner() {
+  const data = await api('/api/scanner');
+  if (data) _scannerData = data;
+  renderScanner();
+}
+
+function renderScanner() {
+  const q    = $('scanner-q').value.toLowerCase();
+  const minS = parseInt($('scanner-score').value) || 0;
+  const cat  = $('scanner-cat').value;
+  const maxD = parseInt($('scanner-days').value) || 0;
+
+  let filtered = _scannerData.filter(m => {
+    if (q && !m.question.toLowerCase().includes(q)) return false;
+    if (m.score < minS) return false;
+    if (cat && m.category !== cat) return false;
+    if (maxD && m.days > maxD) return false;
+    return true;
+  });
+  filtered.sort((a, b) => {
+    const av = a[_sortKey], bv = b[_sortKey];
+    if (typeof av === 'string') return _sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    return _sortAsc ? av - bv : bv - av;
+  });
+
+  $('scanner-count').textContent = filtered.length + '개';
+  const tbody = $('scanner-tbody');
+  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty">조건에 맞는 마켓 없음</td></tr>'; return; }
+  tbody.innerHTML = filtered.slice(0, 200).map(m => {
+    const scoreColor = m.score >= 70 ? 'var(--green)' : m.score >= 40 ? 'var(--yellow)' : 'var(--muted)';
+    const flags = m.flags.map(f => '<span class="pill '+(f==='ARB'?'p-arb':f==='NEAR1'?'p-near1':'p-close')+'">'+f+'</span>').join(' ');
+    const daysStr = m.days < 0.1 ? '<span class="r">'+(m.days*24*60).toFixed(0)+'m</span>' :
+                    m.days < 1   ? '<span class="r">'+(m.days*24).toFixed(0)+'h</span>' :
+                    m.days < 3   ? '<span class="y">'+fmt(m.days,1)+'d</span>' : fmt(m.days,1)+'d';
+    const gap = m.gap > 0.005 ? '<span class="y">+'+fmt(m.gap*100,2)+'%</span>' : '<span class="m">'+fmt(m.gap*100,2)+'%</span>';
+    return '<tr>' +
+      '<td><div class="score-bar"><span style="font-weight:700;color:'+scoreColor+';min-width:24px;">'+m.score+'</span><div class="score-bg"><div class="score-fill" style="width:'+m.score+'%;background:'+scoreColor+';"></div></div></div></td>' +
+      '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+m.question+'">'+m.question+'</td>' +
+      '<td class="g">'+fmt(m.yes,3)+'</td>' +
+      '<td class="r">'+fmt(m.no,3)+'</td>' +
+      '<td>'+gap+'</td>' +
+      '<td>'+fmtK(m.volume_24h)+'</td>' +
+      '<td>'+fmtK(m.liquidity)+'</td>' +
+      '<td>'+daysStr+'</td>' +
+      '<td>'+(flags || '<span class="m">-</span>')+'</td>' +
+      '<td class="'+(m.dispute_risk > 0.05 ? 'r' : 'm')+'">'+fmt(m.dispute_risk*100,1)+'%</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ── SIGNAL CHARTS ─────────────────────────────────────────────────────
+let _sigChartWinrate = null, _sigChartUrgency = null, _sigChartEdge = null;
+
+async function drawSignalCharts() {
+  const data = await api('/api/strategy_stats');
+  if (!data) return;
+  const labels = data.map(s => s.strategy.replace('_convergence','').replace('_arbitrage','_arb').replace(/_/g,' '));
+  const winRates = data.map(s => s.win_rate != null ? s.win_rate : 50);
+  const edges    = data.map(s => s.avg_edge);
+  const colors   = ['#ffd740','#4fc3f7','#4caf50','#ff7043','#ce93d8','#80cbc4'];
+
+  if (_sigChartWinrate) _sigChartWinrate.destroy();
+  _sigChartWinrate = new Chart($('chart-winrate'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: winRates, backgroundColor: colors, borderRadius: 4 }] },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw+'%'}} },
+      scales: {
+        x: { ticks:{color:'#546e7a',font:{size:9}}, grid:{display:false} },
+        y: { min:0, max:100, ticks:{color:'#546e7a',font:{size:9},callback:v=>v+'%'}, grid:{color:'#0d1a2a'} }
       }
     }
-    if (!_coinsLoaded) {
-      // Load 7-day charts once
-      for (const sym of ['BTC', 'ETH', 'SOL', 'MATIC']) {
-        const hist = await fetchJSON('/api/price_history/' + sym);
-        if (hist && hist.length) {
-          const labels = hist.map(p => {
-            const d = new Date(p.t);
-            return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + 'h';
-          });
-          _makeChart(sym, labels, hist.map(p => p.p));
-        }
+  });
+
+  if (_sigChartEdge) _sigChartEdge.destroy();
+  _sigChartEdge = new Chart($('chart-edge'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: edges, backgroundColor: colors, borderRadius: 4 }] },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:c=>'+'+c.raw+'%'}} },
+      scales: {
+        x: { ticks:{color:'#546e7a',font:{size:9}}, grid:{display:false} },
+        y: { ticks:{color:'#546e7a',font:{size:9},callback:v=>'+'+v+'%'}, grid:{color:'#0d1a2a'} }
       }
-      _coinsLoaded = true;
     }
-  } finally {
-    _coinsFetching = false;
+  });
+
+  // Urgency donut from feed
+  const feed = await api('/api/feed');
+  const urgCounts = {IMMEDIATE:0,HIGH:0,MEDIUM:0,LOW:0};
+  (feed||[]).filter(e => e.type==='signal').forEach(e => { if (urgCounts[e.urgency] != null) urgCounts[e.urgency]++; });
+  if (_sigChartUrgency) _sigChartUrgency.destroy();
+  _sigChartUrgency = new Chart($('chart-urgency'), {
+    type: 'doughnut',
+    data: {
+      labels: ['IMMEDIATE','HIGH','MEDIUM','LOW'],
+      datasets: [{ data: Object.values(urgCounts), backgroundColor:['#ffd740','#4fc3f7','#9575cd','#546e7a'], borderWidth:0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{color:'#546e7a',font:{size:9},boxWidth:10}}} }
+  });
+}
+
+async function updateSignalsTab() {
+  const data = await api('/api/signals');
+  if (!data) return;
+  $('sig-count').textContent = data.length + '건';
+  const tbody = $('signals-tbody');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">신호 대기 중...</td></tr>'; return; }
+  tbody.innerHTML = data.map(s => {
+    const urg = '<span class="pill '+urgClass(s.urgency)+'">'+s.urgency+'</span>';
+    return '<tr>' +
+      '<td class="m">'+s.time+'</td>' +
+      '<td class="'+stratClass(s.strategy)+'">'+s.strategy+'</td>' +
+      '<td><span class="pill p-buy">'+s.direction+'</span></td>' +
+      '<td>'+pct(s.model_prob)+'</td>' +
+      '<td>'+pct(s.market_prob)+'</td>' +
+      '<td class="'+(s.net_edge>0?'g':'r')+'">'+(s.net_edge>0?'+':'')+pct(s.net_edge)+'</td>' +
+      '<td>'+pct(s.confidence)+'</td>' +
+      '<td>'+urg+'</td>' +
+      '<td class="m" style="font-size:10px;">'+s.condition_id+'</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ── RISK TAB ──────────────────────────────────────────────────────────
+let _concChart = null;
+async function updateRiskTab() {
+  const [risk, port] = await Promise.all([api('/api/risk'), api('/api/portfolio')]);
+
+  if (risk) {
+    const ddPct = risk.drawdown_pct || 0;
+    const ddColor = ddPct > 12 ? 'var(--red)' : ddPct > 6 ? 'var(--yellow)' : 'var(--green)';
+    $('risk-grid').innerHTML =
+      '<div class="risk-card">' +
+        '<div class="label">총 자산</div>' +
+        '<div class="value a">$'+Number(risk.total_value).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>' +
+        '<div class="sub">현금 '+risk.cash_pct+'% &middot; 포지션 '+(100-risk.cash_pct).toFixed(1)+'%</div>' +
+      '</div>' +
+      '<div class="risk-card">' +
+        '<div class="label">드로다운</div>' +
+        '<div class="value" style="color:'+ddColor+';">'+fmt(ddPct,2)+'%</div>' +
+        '<div class="dd-bar"><div class="dd-fill" style="width:'+Math.min(ddPct/20*100,100)+'%;"></div></div>' +
+        '<div class="sub">한도 20% &middot; 감축 12%</div>' +
+      '</div>' +
+      '<div class="risk-card">' +
+        '<div class="label">95% VaR (1일)</div>' +
+        '<div class="value r">-$'+fmt(risk.var_95,2)+'</div>' +
+        '<div class="sub">포지션 가치의 15% 가정</div>' +
+      '</div>' +
+      '<div class="risk-card">' +
+        '<div class="label">포지션 수</div>' +
+        '<div class="value">'+risk.position_count+'</div>' +
+        '<div class="sub">포지션 총액 $'+Number(risk.position_value).toFixed(2)+'</div>' +
+      '</div>' +
+      '<div class="risk-card">' +
+        '<div class="label">체결 / 거부</div>' +
+        '<div class="value">'+risk.submitted+' / <span class="'+(risk.rejected>0?'r':'')+'">'+risk.rejected+'</span></div>' +
+        '<div class="sub">거부율 '+(risk.submitted>0?fmt(risk.rejected/risk.submitted*100,1):0)+'%</div>' +
+      '</div>' +
+      '<div class="risk-card">' +
+        '<div class="label">잔여 현금</div>' +
+        '<div class="value g">$'+Number(risk.bankroll).toFixed(2)+'</div>' +
+        '<div class="sub">투자 가용 자금</div>' +
+      '</div>';
+
+    // Concentration donut
+    const conc = risk.concentration || [];
+    if (conc.length) {
+      const cashVal = risk.bankroll;
+      const allLabels = conc.map(c => c.token_id).concat(['현금']);
+      const allVals   = conc.map(c => c.value).concat([cashVal]);
+      const colors    = ['#4fc3f7','#4caf50','#ffd740','#ff7043','#ce93d8','#80cbc4','#ef5350','#7986cb','#aed581','#ffcc80','#546e7a'];
+      if (_concChart) _concChart.destroy();
+      _concChart = new Chart($('chart-conc'), {
+        type: 'doughnut',
+        data: { labels: allLabels, datasets:[{ data: allVals, backgroundColor: colors, borderWidth:0 }] },
+        options: { responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{position:'right',labels:{color:'#546e7a',font:{size:9},boxWidth:8}}} }
+      });
+    }
+  }
+
+  if (port) {
+    // Positions
+    const tbody = $('pos-tbody');
+    if (!port.positions || !port.positions.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">포지션 없음</td></tr>';
+    } else {
+      tbody.innerHTML = port.positions.map(p => {
+        const val = p.size_shares * p.current_price;
+        return '<tr>' +
+          '<td class="m" style="font-size:10px;font-family:monospace;">'+p.token_id+'</td>' +
+          '<td><span class="pill '+(p.side==='BUY'?'p-buy':'p-sell')+'">'+p.side+'</span></td>' +
+          '<td>'+fmt(p.avg_entry,4)+'</td>' +
+          '<td>'+fmt(p.current_price,4)+'</td>' +
+          '<td>'+fmt(p.size_shares,4)+'</td>' +
+          '<td>$'+fmt(val,2)+'</td>' +
+          '<td class="'+(p.unrealized_pnl>=0?'g':'r')+'">'+(p.unrealized_pnl>=0?'+':'')+'$'+fmt(p.unrealized_pnl,3)+'</td>' +
+        '</tr>';
+      }).join('');
+    }
+  }
+
+  // Trades
+  const trades = await api('/api/trades');
+  const trBody = $('trades-tbody');
+  if (!trades || !trades.length) {
+    trBody.innerHTML = '<tr><td colspan="6" class="empty">거래 없음</td></tr>';
+  } else {
+    trBody.innerHTML = trades.slice(0,30).map(t =>
+      '<tr>' +
+        '<td class="m">'+t.time+'</td>' +
+        '<td class="'+stratClass(t.strategy)+'">'+(t.strategy||'-').replace('_convergence','').replace('_arbitrage','_arb')+'</td>' +
+        '<td><span class="pill '+(t.side==='BUY'?'p-buy':'p-sell')+'">'+t.side+'</span></td>' +
+        '<td>'+fmt(t.fill_price,4)+'</td>' +
+        '<td>'+fmt(t.fill_size,4)+'</td>' +
+        '<td class="g">$'+fmt(t.fill_price*t.fill_size,2)+'</td>' +
+      '</tr>'
+    ).join('');
   }
 }
 
-async function tick() {
-  await updateStats();
-  await updateMarkets();
-  await updateOpps();
-  await updateSignals();
-  await updateTrades();
-  await updatePositions();
-  await updateCoins();
+// ── COIN CHARTS ───────────────────────────────────────────────────────
+const _coinCharts = {};
+const _coinColors = {BTC:'#f7931a',ETH:'#627eea',SOL:'#9945ff',MATIC:'#8247e5'};
+let _coinsLoaded = false;
+
+async function loadCoinCharts() {
+  const prices = await api('/api/prices');
+  if (prices) {
+    for (const [sym, d] of Object.entries(prices)) {
+      const el = $('price-' + sym);
+      const ch = $('change-' + sym);
+      if (el) el.textContent = '$' + Number(d.price).toLocaleString('en',{minimumFractionDigits:2, maximumFractionDigits:2});
+      if (ch) {
+        const up = d.change_24h >= 0;
+        ch.textContent = (up ? '▲ +' : '▼ ') + d.change_24h.toFixed(2) + '%';
+        ch.style.color = up ? 'var(--green)' : 'var(--red)';
+      }
+    }
+  }
+  if (_coinsLoaded) return;
+  for (const sym of ['BTC','ETH','SOL','MATIC']) {
+    const hist = await api('/api/price_history/' + sym);
+    if (hist && hist.length) {
+      const labels = hist.map(p => {
+        const d = new Date(p.t);
+        return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + 'h';
+      });
+      const color = _coinColors[sym] || '#4fc3f7';
+      if (_coinCharts[sym]) _coinCharts[sym].destroy();
+      _coinCharts[sym] = new Chart($('chart-'+sym), {
+        type: 'line',
+        data: { labels, datasets:[{data:hist.map(p=>p.p),borderColor:color,backgroundColor:color+'18',fill:true,tension:0.3,pointRadius:0,borderWidth:2}] },
+        options: { responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+Number(c.raw).toLocaleString()}}},
+          scales:{
+            x:{display:false},
+            y:{grid:{color:'#0d1a2a'},ticks:{color:'#546e7a',font:{size:9},callback:v=>'$'+(v>=1000?(v/1000).toFixed(1)+'K':v)}}
+          }
+        }
+      });
+    }
+  }
+  _coinsLoaded = true;
 }
 
-// Initial load + 3s refresh
+// ── MAIN TICK ─────────────────────────────────────────────────────────
+async function tick() {
+  await updateTopbar();
+  if (activeTab === 'dashboard') {
+    await Promise.all([updateEquityCurve(), updateStratPerf(), updateFeed(), updateTopOpps()]);
+  } else if (activeTab === 'scanner') {
+    await loadScanner();
+  } else if (activeTab === 'signals') {
+    await Promise.all([updateSignalsTab(), drawSignalCharts()]);
+  } else if (activeTab === 'risk') {
+    await updateRiskTab();
+  } else if (activeTab === 'coins') {
+    await loadCoinCharts();
+  }
+}
+
+// Init
 tick();
-setInterval(tick, 3000);
-// Refresh coin spot prices every 60s
-setInterval(() => { if (currentTab === 'coins') updateCoins(true); }, 60000);
+setInterval(tick, 5000);  // refresh every 5s
 </script>
 </body>
 </html>

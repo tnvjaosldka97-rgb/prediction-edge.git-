@@ -26,9 +26,10 @@ class _RateLimiter:
         self._last = time.time()
 
 
-_gamma_rl   = _RateLimiter(config.GAMMA_REQ_PER_MIN)
-_clob_rl    = _RateLimiter(config.CLOB_ORDERS_PER_MIN)
-_data_rl    = _RateLimiter(config.DATA_API_REQ_PER_MIN)
+_gamma_rl      = _RateLimiter(config.GAMMA_REQ_PER_MIN)
+_clob_rl       = _RateLimiter(config.CLOB_ORDERS_PER_MIN)
+_data_rl       = _RateLimiter(config.DATA_API_REQ_PER_MIN)
+_orderbook_rl  = _RateLimiter(120)   # separate limiter — reads don't count against order quota
 
 
 async def fetch_active_markets(limit: int = 500) -> list[Market]:
@@ -138,7 +139,7 @@ async def fetch_active_markets(limit: int = 500) -> list[Market]:
 
 async def fetch_orderbook(token_id: str) -> Optional[OrderBook]:
     """Fetch L2 order book for a token from CLOB API."""
-    await _clob_rl.wait()
+    await _orderbook_rl.wait()
     url = f"{config.CLOB_HOST}/book"
     params = {"token_id": token_id}
     async with httpx.AsyncClient(timeout=10) as client:

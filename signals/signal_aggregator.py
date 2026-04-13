@@ -30,6 +30,7 @@ import time
 from collections import defaultdict
 from core.models import Signal, AggregatedSignal
 from core.logger import log
+from backtest.auto_tuner import get_strategy_min_confidence
 
 
 _STRATEGY_WEIGHTS = {
@@ -81,6 +82,15 @@ class SignalAggregator:
             await self._process(signal)
 
     async def _process(self, signal: Signal):
+        # Drop signals below auto-tuned confidence threshold for their strategy
+        min_conf = get_strategy_min_confidence(signal.strategy)
+        if min_conf > 0 and signal.confidence < min_conf:
+            log.debug(
+                f"[AGG] {signal.strategy} signal dropped: "
+                f"confidence {signal.confidence:.2f} < tuned threshold {min_conf:.2f}"
+            )
+            return
+
         now = time.time()
         cid = signal.condition_id
 

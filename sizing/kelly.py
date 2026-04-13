@@ -14,6 +14,36 @@ import config
 from core.logger import log
 
 
+def _get_sharpe_multiplier() -> float:
+    """
+    Adjust Kelly fraction based on recent portfolio Sharpe ratio.
+    Uses closed-trade returns from DB to compute rolling Sharpe.
+
+    Range: 0.60x (losing streak) → 1.30x (strong edge confirmed)
+    Only kicks in after 10+ closed trades — neutral before that.
+    """
+    import math as _math
+    returns = db.get_recent_trade_returns(limit=30)
+    if len(returns) < 10:
+        return 1.0
+
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+    std = _math.sqrt(variance) if variance > 0 else 0.01
+    sharpe = mean / std
+
+    if sharpe > 1.5:
+        return 1.30
+    elif sharpe > 1.0:
+        return 1.15
+    elif sharpe > 0.5:
+        return 1.00
+    elif sharpe > 0.0:
+        return 0.85
+    else:
+        return 0.60   # negative Sharpe → halve bets until we diagnose
+
+
 def _get_kelly_fraction(trade_count: int) -> float:
     """Phase-in Kelly fraction based on number of calibrated trades."""
     phases = sorted(config.KELLY_CALIBRATION_PHASES.items())
@@ -92,9 +122,10 @@ def compute_kelly(
     annualized_multiplier = min(365 / days, 52)  # cap at 52x (weekly turnover)
     annualized_kelly = full_kelly * annualized_multiplier
 
-    # Step 6: Apply phase-in fraction
-    phase_fraction = _get_kelly_fraction(trade_count)
-    final_fraction = min(annualized_kelly * phase_fraction, 0.10)  # never > 10% per trade
+    # Step 6: Apply phase-in fraction × Sharpe multiplier
+    phase_fraction  = _get_kelly_fraction(trade_count)
+    sharpe_mult     = _get_sharpe_multiplier()
+    final_fraction  = min(annualized_kelly * phase_fraction * sharpe_mult, 0.10)
 
     # Step 7: Hard cap per market
     max_per_market = bankroll * config.MAX_SINGLE_MARKET_PCT

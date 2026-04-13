@@ -174,6 +174,9 @@ class MarketMakerLoop:
         book: Optional[OrderBook] = self._store.get_orderbook(self._token_id)
         if not book:
             return False, "no orderbook"
+        # Guard: synthetic orderbooks have exactly 500.0 depth — never quote on fake data
+        if book.bids and book.bids[0][1] == 500.0:
+            return False, "synthetic orderbook — real-time data not yet available"
         if book.spread > config.MM_MAX_SPREAD_TO_QUOTE:
             return False, f"spread already wide: {book.spread:.3f}"
 

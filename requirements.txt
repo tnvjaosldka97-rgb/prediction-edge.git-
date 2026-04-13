@@ -6,3 +6,4 @@ fastapi
 uvicorn
 rich
 py-clob-client
+cryptography

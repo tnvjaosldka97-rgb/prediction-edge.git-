@@ -159,6 +159,33 @@ def get_calibration_stats(strategy: str) -> dict:
     }
 
 
+def update_pnl_for_token(token_id: str, pnl: float) -> None:
+    """Record realized PnL on the most recent open buy trade for a token."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM trades WHERE token_id = ? AND side = 'BUY' AND pnl IS NULL ORDER BY timestamp DESC LIMIT 1",
+        (token_id,)
+    ).fetchone()
+    if row:
+        conn.execute("UPDATE trades SET pnl = ? WHERE id = ?", (pnl, row["id"]))
+        conn.commit()
+
+
+def get_recent_trade_returns(limit: int = 50) -> list[float]:
+    """Return recent closed-trade returns as fractions of cost basis."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT pnl, fill_price, size_shares FROM trades WHERE pnl IS NOT NULL AND side = 'BUY' ORDER BY timestamp DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    result = []
+    for r in rows:
+        cost = r["fill_price"] * r["size_shares"]
+        if cost > 0:
+            result.append(r["pnl"] / cost)
+    return result
+
+
 def upsert_wallet_stats(address: str, stats: dict) -> None:
     conn = get_conn()
     conn.execute(

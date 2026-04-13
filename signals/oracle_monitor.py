@@ -40,7 +40,8 @@ class OracleMonitor:
         self._running = True
         while self._running:
             await self._check_resolutions()
-            await asyncio.sleep(15)  # poll every 15 seconds
+            await self._check_recently_closed()
+            await asyncio.sleep(15)
 
     async def _check_resolutions(self):
         """
@@ -116,6 +117,87 @@ class OracleMonitor:
 
             await self._bus.put(signal)
             self._seen_resolutions.add(market.condition_id)
+
+    async def _check_recently_closed(self):
+        """
+        Separately fetch recently-resolved markets from Gamma API.
+        Active market store only has open markets — this catches the resolution window.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{config.GAMMA_HOST}/markets",
+                    params={"closed": "true", "limit": 20, "order": "updatedAt", "ascending": "false"},
+                )
+                resp.raise_for_status()
+                items = resp.json()
+                if isinstance(items, dict):
+                    items = items.get("data", [])
+        except Exception:
+            return
+
+        import json as _json
+        for item in items:
+            try:
+                condition_id  = item.get("conditionId", "")
+                winner_outcome = item.get("winnerOutcome") or item.get("winner_outcome", "")
+                if not condition_id or not winner_outcome:
+                    continue
+                if condition_id in self._seen_resolutions:
+                    continue
+
+                prices_raw = item.get("outcomePrices", [])
+                outcomes   = item.get("outcomes", [])
+                token_ids  = item.get("clobTokenIds", [])
+                if isinstance(prices_raw, str):
+                    prices_raw = _json.loads(prices_raw)
+                if isinstance(outcomes, str):
+                    outcomes = _json.loads(outcomes)
+                if isinstance(token_ids, str):
+                    token_ids = _json.loads(token_ids)
+
+                for i, outcome in enumerate(outcomes):
+                    if outcome != winner_outcome:
+                        continue
+                    token_id = token_ids[i] if i < len(token_ids) else ""
+                    price    = float(prices_raw[i]) if i < len(prices_raw) else 0.0
+                    if not token_id or price >= 0.99:
+                        self._seen_resolutions.add(condition_id)
+                        continue
+
+                    remaining = 1.0 - price
+                    fee       = config.TAKER_FEE_RATE * (1 - price)
+                    net_edge  = remaining - fee
+
+                    if net_edge < config.MIN_EDGE_AFTER_FEES:
+                        self._seen_resolutions.add(condition_id)
+                        continue
+
+                    signal = Signal(
+                        signal_id=str(uuid.uuid4()),
+                        strategy="oracle_convergence",
+                        condition_id=condition_id,
+                        token_id=token_id,
+                        direction="BUY",
+                        model_prob=1.0,
+                        market_prob=price,
+                        edge=remaining,
+                        net_edge=net_edge,
+                        confidence=0.90,
+                        urgency="IMMEDIATE",
+                        created_at=time.time(),
+                        expires_at=time.time() + config.ORACLE_CONVERGENCE_WINDOW_SEC,
+                        stale_price=price,
+                        stale_threshold=remaining * 0.5,
+                    )
+                    log.info(
+                        f"[ORACLE] Closed market resolution: {item.get('question','')[:60]} "
+                        f"winner={winner_outcome} price={price:.3f} net_edge={net_edge:.2%}"
+                    )
+                    await self._bus.put(signal)
+                    self._seen_resolutions.add(condition_id)
+            except Exception:
+                continue
 
     def stop(self):
         self._running = False

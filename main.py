@@ -39,8 +39,13 @@ from signals.relation_builder import RelationGraphManager
 from execution.gateway import ExecutionGateway
 from execution.reconciler import PositionReconciler
 from sizing.kelly import compute_kelly
-from core.models import Order, AggregatedSignal, Signal, Fill, Position
+from core.models import Order, AggregatedSignal, Signal, Fill, Position, OrderBook
 from mm.market_maker import MarketMakerLoop
+from data.clob_orderbook_poller import ClobOrderbookPoller
+from signals.cross_platform_arb import CrossPlatformArbScanner
+from signals.exit_signal import ExitSignalGenerator
+from backtest.auto_tuner import AutoTuner
+from core import db
 import config
 
 
@@ -85,9 +90,10 @@ async def fill_consumer(fill_bus: asyncio.Queue, portfolio: PortfolioState, stor
             if key in portfolio.positions:
                 existing = portfolio.positions[key]
                 new_size = existing.size_shares - fill.fill_size
+                realized = (fill.fill_price - existing.avg_entry_price) * fill.fill_size - fill.fee_paid
+                portfolio.realized_pnl += realized
+                db.update_pnl_for_token(key, realized)   # record for Sharpe tracking
                 if new_size <= 0.001:
-                    realized = (fill.fill_price - existing.avg_entry_price) * existing.size_shares
-                    portfolio.realized_pnl += realized - fill.fee_paid
                     del portfolio.positions[key]
                 else:
                     portfolio.positions[key] = existing.model_copy(update={
@@ -163,14 +169,30 @@ async def market_maker_manager(store: MarketStore, gateway: ExecutionGateway, po
 
 
 async def market_refresh_loop(store: MarketStore):
-    """REST market refresh every 60s (WebSocket handles real-time updates)."""
+    """REST market refresh every 60s. Also synthesizes orderbooks so signals work without WebSocket."""
     while True:
         try:
             markets = await fetch_active_markets(limit=500)
             for m in markets:
                 m.dispute_risk = score_oracle_dispute_risk(m)
             await store.update_markets(markets)
-            log.info(f"[REST] Market store refreshed: {len(markets)} markets")
+
+            # Populate orderbooks from REST prices (WebSocket fallback)
+            # Spread is approximate but lets all signal generators run
+            synth_count = 0
+            for m in markets:
+                for t in m.tokens:
+                    if t.price > 0:
+                        half_spread = max(0.005, round(t.price * 0.01, 4))
+                        book = OrderBook(
+                            token_id=t.token_id,
+                            bids=[(round(max(0.01, t.price - half_spread), 4), 500.0)],
+                            asks=[(round(min(0.99, t.price + half_spread), 4), 500.0)],
+                        )
+                        await store.update_orderbook(book)
+                        synth_count += 1
+
+            log.info(f"[REST] Market store refreshed: {len(markets)} markets, {synth_count} orderbooks")
         except Exception as e:
             log.error(f"Market refresh error: {e}")
         await asyncio.sleep(60)
@@ -398,6 +420,24 @@ async def main():
         # Market making manager: starts/stops MM loops per eligible market
         asyncio.create_task(market_maker_manager(store, gateway, portfolio), name="mm_manager"),
 
+        # CLOB REST orderbook poller — real orderbook data even without WebSocket
+        asyncio.create_task(ClobOrderbookPoller(store, portfolio).start(), name="ob_poller"),
+
+        # Cross-platform arb: Kalshi vs Polymarket price divergence
+        asyncio.create_task(
+            CrossPlatformArbScanner(store, raw_signal_bus).start(),
+            name="cross_platform_arb"
+        ),
+
+        # Exit signal generator — harvest profits before they decay
+        asyncio.create_task(
+            ExitSignalGenerator(portfolio, store, raw_signal_bus).start(),
+            name="exit_signals"
+        ),
+
+        # Self-improvement: auto-tunes parameters every 7 days from trade outcomes
+        asyncio.create_task(AutoTuner().start(), name="auto_tuner"),
+
         # Position/balance reconciler (syncs local state with CLOB truth)
         asyncio.create_task(reconciler.start(), name="reconciler"),
     ]
@@ -429,7 +469,8 @@ async def main():
 
     log.info(f"System running with {len(tasks)} tasks. Ctrl+C to stop.")
     log.info(f"Strategies: oracle_convergence, fee_arb, closing_convergence, "
-             f"order_flow, correlated_arb, on_chain_copy, market_making")
+             f"order_flow, correlated_arb, on_chain_copy, market_making, "
+             f"cross_platform_arb, exit_signals")
 
     try:
         await asyncio.gather(*tasks)

@@ -26,11 +26,13 @@ CTF_EXCHANGE_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
 POLYMARKET_NEG_RISK  = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
 
 # ── Wallet ───────────────────────────────────────────────────────────────────
-PRIVATE_KEY   = os.getenv("PRIVATE_KEY", "")
+PRIVATE_KEY    = os.getenv("PRIVATE_KEY", "")
 WALLET_ADDRESS = os.getenv("WALLET_ADDRESS", "")
-API_KEY       = os.getenv("POLY_API_KEY", "")
-API_SECRET    = os.getenv("POLY_API_SECRET", "")
+API_KEY        = os.getenv("POLY_API_KEY", "")
+API_SECRET     = os.getenv("POLY_API_SECRET", "")
 API_PASSPHRASE = os.getenv("POLY_API_PASSPHRASE", "")
+KALSHI_ACCESS_KEY      = os.getenv("KALSHI_ACCESS_KEY", "")       # Kalshi key ID (UUID)
+KALSHI_PRIVATE_KEY_B64 = os.getenv("KALSHI_PRIVATE_KEY_B64", "")  # base64(private_key_pem)
 
 # ── Trading parameters ───────────────────────────────────────────────────────
 # $100 시드 최적화:
@@ -38,14 +40,14 @@ API_PASSPHRASE = os.getenv("POLY_API_PASSPHRASE", "")
 # - 엣지 기준 5%로 상향 (소액일수록 수수료 비율 체감이 큼)
 # - 드로다운 기준 엄격하게 (잃으면 복구가 힘듦)
 KELLY_FRACTION         = float(os.getenv("KELLY_FRACTION", "0.05"))
-MIN_EDGE_AFTER_FEES    = 0.05        # $100 시드: 5%로 상향 (3%는 소액엔 너무 낮음)
-MIN_ORDER_SIZE_USD     = 2.0         # Polymarket 최소 주문 크기
-MAX_SINGLE_MARKET_PCT  = 0.08        # $100 시드: 8% ($8) — 너무 잘게 쪼개면 수수료만 냄
-MAX_CATEGORY_PCT       = 0.25        # 25% max bankroll per category
-MAX_DRAWDOWN_HALT      = 0.20        # $100 시드: 20%까지 허용 ($20 손실 시 halt)
-MAX_DRAWDOWN_REDUCE    = 0.12        # 12% 손실 시 사이즈 절반
-WHALE_THRESHOLD_USD    = 5_000       # 고래 감지 기준 (변경 없음)
-VOLUME_SPIKE_RATIO     = 5.0         # 거래량 급등 기준 (변경 없음)
+MIN_EDGE_AFTER_FEES    = float(os.getenv("MIN_EDGE_AFTER_FEES", "0.02"))   # env로 튜닝 가능
+MIN_ORDER_SIZE_USD     = 2.0
+MAX_SINGLE_MARKET_PCT  = 0.08
+MAX_CATEGORY_PCT       = 0.25
+MAX_DRAWDOWN_HALT      = 0.20
+MAX_DRAWDOWN_REDUCE    = 0.12
+WHALE_THRESHOLD_USD    = int(os.getenv("WHALE_THRESHOLD_USD", "1000"))     # $1000으로 하향
+VOLUME_SPIKE_RATIO     = 3.0         # 3x 급등으로 낮춤 (5x는 너무 드묾)
 
 # ── Market making ────────────────────────────────────────────────────────────
 MM_MIN_VOLUME_24H      = 50_000      # skip thin markets
