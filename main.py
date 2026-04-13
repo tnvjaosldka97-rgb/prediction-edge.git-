@@ -275,7 +275,7 @@ async def process_aggregated_signals(
             fee_cost_per_dollar=fee_per_dollar,
         )
 
-        if size_usd < 5:
+        if size_usd < config.MIN_ORDER_SIZE_USD:
             log.debug(f"Kelly size too small: ${size_usd:.2f} for {strategy}")
             continue
 

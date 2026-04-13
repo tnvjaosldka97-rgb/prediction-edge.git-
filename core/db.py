@@ -142,15 +142,19 @@ def get_calibration_stats(strategy: str) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"count": 0, "accuracy": 0.5, "calibration_error": 0.5}
+        # Cold-start: no calibration data yet.
+        # Return error=0 so Kelly trusts the model until we have real data.
+        # Without this, shrinkage=1.0 makes every Kelly bet = 0 forever.
+        return {"count": 0, "accuracy": 0.5, "calibration_error": 0.0}
 
     total = len(rows)
     correct = sum(1 for r in rows if r["was_correct"] == 1)
     accuracy = correct / total
 
     # Mean calibration error: |model_prob - empirical_hit_rate|
-    # Simplified: bucket by probability and measure each bucket's accuracy
     calib_error = abs(accuracy - sum(r["model_prob"] for r in rows) / total)
+    # Cap at 0.3 — even a bad model shouldn't fully collapse bets
+    calib_error = min(calib_error, 0.30)
 
     return {
         "count": total,

@@ -151,12 +151,26 @@ def _compute_convergence_signal(
 
     # Build model probability
     if external_prob is not None:
-        # Blend market price with external signal
+        # Blend market price with external signal — this provides REAL edge
         model_prob = 0.6 * external_prob + 0.4 * price
     else:
-        # Use price + momentum + time factor
-        momentum_boost = max(0, momentum) * 0.05  # up to 5% boost from momentum
-        model_prob = price + momentum_boost
+        # Without external data, model_prob ≈ price = NO EDGE.
+        # Only trade if:
+        #   a) Very close to expiry (< 3 days) — time pressure creates real mispricing
+        #   b) Price is extreme (> 0.88) — near-certain, fee advantage kicks in
+        #   c) Strong upward momentum — order flow confirming direction
+        if price < 0.88 and days > 3:
+            return None  # no information advantage, just chasing the market
+        if price >= 0.88:
+            # Near-certain zone: real edge from fee structure
+            # Expected value = 1.0 - price (guaranteed payoff) - fee
+            model_prob = min(0.99, price + (1 - price) * 0.70)  # conservative 70% of remaining
+        else:
+            # < 3 days + strong momentum: small but real time-pressure edge
+            momentum_boost = max(0, momentum) * 0.04
+            model_prob = price + time_factor * 0.03 + momentum_boost
+            if model_prob - price < 0.025:  # need at least 2.5% gross to clear fees
+                return None
 
     # Apply UMA dispute haircut
     if market.dispute_risk > 0:

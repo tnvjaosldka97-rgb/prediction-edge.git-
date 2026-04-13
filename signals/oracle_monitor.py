@@ -41,7 +41,7 @@ class OracleMonitor:
         while self._running:
             await self._check_resolutions()
             await self._check_recently_closed()
-            await asyncio.sleep(15)
+            await asyncio.sleep(8)  # 15s was too slow for 2-10min convergence windows
 
     async def _check_resolutions(self):
         """

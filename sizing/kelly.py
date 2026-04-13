@@ -115,17 +115,18 @@ def compute_kelly(
         log.debug(f"No edge after calibration: raw={model_prob:.3f} adj={adjusted_prob:.3f} market={market_price:.3f}")
         return 0.0
 
-    # Step 5: Annualized return adjustment
-    # A 5% edge in 1 week is far more valuable than 5% edge in 1 year
-    # Normalize to make sizes comparable across time horizons
+    # Step 5: Time-horizon adjustment
+    # Prediction markets: longer horizon = more uncertainty = smaller bet
+    # But we don't annualize aggressively — it over-sizes short-term bets
     days = max(1, days_to_resolution)
-    annualized_multiplier = min(365 / days, 52)  # cap at 52x (weekly turnover)
-    annualized_kelly = full_kelly * annualized_multiplier
+    # Gentle boost for short-dated markets (max 4x for same-day markets)
+    time_mult = min(30.0 / days, 4.0)
+    adjusted_kelly = full_kelly * time_mult
 
     # Step 6: Apply phase-in fraction × Sharpe multiplier
     phase_fraction  = _get_kelly_fraction(trade_count)
     sharpe_mult     = _get_sharpe_multiplier()
-    final_fraction  = min(annualized_kelly * phase_fraction * sharpe_mult, 0.10)
+    final_fraction  = min(adjusted_kelly * phase_fraction * sharpe_mult, 0.08)  # hard cap 8%
 
     # Step 7: Hard cap per market
     max_per_market = bankroll * config.MAX_SINGLE_MARKET_PCT

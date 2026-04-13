@@ -27,6 +27,7 @@ import time
 import uuid
 from typing import Optional
 import config
+from core.logger import log
 from core.models import Market, Signal, Token, OrderBook
 from core.logger import log
 
@@ -86,6 +87,7 @@ class FeeArbitrageScanner:
         self._store = market_store
         self._bus = signal_bus
         self._running = False
+        self._extreme_emitted: dict[str, float] = {}  # token_id → last emit time
 
     async def start(self):
         self._running = True
@@ -129,27 +131,57 @@ class FeeArbitrageScanner:
         self, market: Market, token: Token
     ) -> Optional[Signal]:
         """
-        Check for mispricing in extreme-probability tokens.
+        Near-certain token (p > 0.95): buy the convergence to 1.0.
 
-        Strategy: if a token is priced at p < 0.05, it has very low fees.
-        If we believe the true probability is even 1-2% higher, the trade is
-        profitable after fees when it would NOT be at mid-range prices.
+        This IS real, reliable alpha:
+          - Token at 0.97 → settles at 1.00 → 3% gross gain
+          - Fee at 0.97 = 2% * (1-0.97) = 0.06% → nearly free
+          - Net: ~2.94% risk-free if oracle doesn't dispute
 
-        In production, replace the model probability with:
-        - Metaculus community forecast
-        - Your own domain model
-        - Cross-market implied probability
+        No external model needed — the market itself is telling us
+        this will resolve 1.0. We just capture the remaining gap.
         """
         price = token.price
+        if price < (1 - config.EXTREME_PRICE_THRESHOLD):  # not near-certain
+            return None
 
-        # Fee at this price point (per $100 position)
-        fee_pct = compute_exact_fee(price, 100) / 100
+        remaining = 1.0 - price
+        fee_pct = compute_exact_fee(price, 100) / 100  # near-zero at high price
+        net_edge = remaining - fee_pct
 
-        # For demonstration: we need a model probability
-        # In production this comes from external data
-        # Skip if no model probability available
-        # (This method would be called with model_prob as parameter)
-        return None  # placeholder — integrated when model probabilities available
+        if net_edge < config.MIN_EDGE_AFTER_FEES:
+            return None
+
+        # Skip if dispute risk is high — oracle reversal would hurt
+        if market.dispute_risk > config.ORACLE_DISPUTE_THRESHOLD_WARN:
+            return None
+
+        # Throttle: only signal once per market per 30 min
+        cache_key = token.token_id
+        last = self._extreme_emitted.get(cache_key, 0)
+        if time.time() - last < 1800:
+            return None
+        self._extreme_emitted[cache_key] = time.time()
+
+        urgency = "HIGH" if market.days_to_resolution < 3 else "MEDIUM"
+
+        return Signal(
+            signal_id=str(uuid.uuid4()),
+            strategy="fee_arbitrage",
+            condition_id=market.condition_id,
+            token_id=token.token_id,
+            direction="BUY",
+            model_prob=1.0,        # near-certain → treat as certain
+            market_prob=price,
+            edge=remaining,
+            net_edge=net_edge,
+            confidence=0.90 - market.dispute_risk,
+            urgency=urgency,
+            created_at=time.time(),
+            expires_at=time.time() + 3600,
+            stale_price=price,
+            stale_threshold=remaining * 0.4,
+        )
 
     async def _check_internal_arb(self, market: Market) -> Optional[Signal]:
         """
@@ -169,6 +201,11 @@ class FeeArbitrageScanner:
         if not yes_book or not no_book:
             return None
         if yes_book.is_stale() or no_book.is_stale():
+            return None
+
+        # Reject synthetic orderbooks (depth=500 is our sentinel value for fake books)
+        # Internal arb on fake data = executing a trade that doesn't exist
+        if yes_book.ask_depth(levels=1) >= 490 or no_book.ask_depth(levels=1) >= 490:
             return None
 
         yes_ask = yes_book.best_ask

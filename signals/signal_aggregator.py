@@ -30,6 +30,7 @@ import time
 from collections import defaultdict
 from core.models import Signal, AggregatedSignal
 from core.logger import log
+from core import db
 from backtest.auto_tuner import get_strategy_min_confidence
 
 
@@ -138,6 +139,12 @@ class SignalAggregator:
 
         # Add to recent tracking
         self._recent[cid][signal.direction].append(signal)
+
+        # Persist signal to DB for calibration feedback loop
+        try:
+            db.insert_signal(signal)
+        except Exception:
+            pass
 
         # ── Multi-strategy confidence boost ──────────────────────────────────
         all_same = self._recent[cid][signal.direction]
