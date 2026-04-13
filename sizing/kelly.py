@@ -74,6 +74,7 @@ def compute_kelly(
     days_to_resolution: float,
     strategy: str,
     fee_cost_per_dollar: float = 0.0,
+    is_maker: bool = False,
 ) -> float:
     """
     Returns optimal position size in USD.
@@ -100,8 +101,10 @@ def compute_kelly(
     # Step 3: Compute net odds (after fees)
     # On a YES buy: win (1 - market_price) per dollar, lose market_price per dollar
     # After fees: win (1 - market_price - fee) per dollar
+    # Makers pay 0% fee — use 0 fee_cost regardless of input
+    effective_fee = 0.0 if is_maker else fee_cost_per_dollar
     win_per_dollar = (1 - market_price) / market_price   # b in Kelly formula
-    win_after_fees = win_per_dollar - fee_cost_per_dollar / market_price
+    win_after_fees = win_per_dollar - effective_fee / market_price
 
     if win_after_fees <= 0:
         return 0.0
@@ -126,7 +129,13 @@ def compute_kelly(
     # Step 6: Apply phase-in fraction × Sharpe multiplier
     phase_fraction  = _get_kelly_fraction(trade_count)
     sharpe_mult     = _get_sharpe_multiplier()
-    final_fraction  = min(adjusted_kelly * phase_fraction * sharpe_mult, 0.08)  # hard cap 8%
+
+    # Near-certain token: price > 0.95 → fee ≈ 0%, outcome near-certain → loosen cap
+    # e.g. oracle convergence at p=0.97 with 3% remaining → risk is tiny
+    near_certain = market_price > 0.95 or model_prob > 0.97
+    hard_cap = 0.15 if near_certain else 0.08   # 15% cap vs standard 8%
+
+    final_fraction  = min(adjusted_kelly * phase_fraction * sharpe_mult, hard_cap)
 
     # Step 7: Hard cap per market
     max_per_market = bankroll * config.MAX_SINGLE_MARKET_PCT
@@ -137,7 +146,8 @@ def compute_kelly(
         f"Kelly: model={model_prob:.3f} adj={adjusted_prob:.3f} "
         f"market={market_price:.3f} edge={full_kelly:.4f} "
         f"time_mult={time_mult:.1f}x "
-        f"phase={phase_fraction} "
+        f"phase={phase_fraction} maker={'Y' if is_maker else 'N'} "
+        f"near_certain={'Y' if near_certain else 'N'} cap={hard_cap:.0%} "
         f"cal_trades={trade_count} cal_err={calibration_error:.3f} "
         f"size=${size:.2f}"
     )

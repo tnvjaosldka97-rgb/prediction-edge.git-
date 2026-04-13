@@ -262,9 +262,10 @@ async def process_aggregated_signals(
             log.debug(f"Expired signal dropped: {strategy}")
             continue
 
-        # Kelly sizing
+        # Kelly sizing — maker orders pay 0% fee (reflected in sizing)
         days = market.days_to_resolution if market else 30.0
-        fee_per_dollar = config.TAKER_FEE_RATE * (1 - current_price)
+        is_maker_order = urgency not in ("IMMEDIATE", "HIGH")
+        fee_per_dollar = 0.0 if is_maker_order else config.TAKER_FEE_RATE * (1 - current_price)
 
         size_usd = compute_kelly(
             model_prob=model_prob,
@@ -273,6 +274,7 @@ async def process_aggregated_signals(
             days_to_resolution=days,
             strategy=strategy,
             fee_cost_per_dollar=fee_per_dollar,
+            is_maker=is_maker_order,
         )
 
         if size_usd < config.MIN_ORDER_SIZE_USD:
@@ -453,7 +455,7 @@ async def main():
     # Alchemy: 블록당 2s 폴링으로 더 빠름 / public RPC: 5-10s 딜레이 허용
     if config.POLYGON_RPC:
         tasks.append(asyncio.create_task(
-            OnChainWatcher(store, raw_signal_bus).start(),
+            OnChainWatcher(store, raw_signal_bus, portfolio=portfolio).start(),
             name="onchain"
         ))
         rpc_type = "Alchemy (fast)" if "alchemy" in config.POLYGON_RPC.lower() else "public RPC"

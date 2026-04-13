@@ -226,10 +226,12 @@ class OnChainWatcher:
     # Computed via eth_hash.auto.keccak — verified correct
     ORDER_FILLED_TOPIC = "0x30021c0a2a864e227fa5f28b5303763fe379f4cf7e9aa8986ee659fca3ee244b"
 
-    def __init__(self, market_store, signal_bus: asyncio.Queue):
+    def __init__(self, market_store, signal_bus: asyncio.Queue, portfolio=None):
         self._market_store = market_store
         self._signal_bus = signal_bus
+        self._portfolio = portfolio    # for exit signal generation
         self._top_wallets: set[str] = set()
+        self._wallet_sharpes: dict[str, float] = {}   # address → sharpe
         self._last_block = 0
         self._running = False
         self._abi: list = []
@@ -239,9 +241,13 @@ class OnChainWatcher:
         from data.abi_loader import load_ctf_exchange_abi
         self._abi = await load_ctf_exchange_abi() or []
 
-        # Load top wallets
+        # Load top wallets + their Sharpe ratios for edge scaling
         top = db.get_top_wallets(config.COPY_TRADE_MIN_SHARPE, config.COPY_TRADE_MAX_WALLETS)
         self._top_wallets = {w["address"].lower() for w in top}
+        self._wallet_sharpes = {
+            w["address"].lower(): float(w.get("sharpe_ratio", config.COPY_TRADE_MIN_SHARPE))
+            for w in top
+        }
         log.info(f"OnChainWatcher: monitoring {len(self._top_wallets)} top wallets")
 
         if not self._top_wallets:
@@ -299,7 +305,7 @@ class OnChainWatcher:
         price = trade.get("price", 0)
         side = trade.get("side", "BUY")
 
-        if size_usd < 500 or not token_id or price <= 0:
+        if not token_id or price <= 0:
             return
 
         # Find the market for this token
@@ -314,6 +320,36 @@ class OnChainWatcher:
 
         if not market:
             log.debug(f"[WHALE] Unknown token {token_id[:12]}, skipping")
+            return
+
+        # ── Whale EXIT detection ──────────────────────────────────────────────
+        # If the whale is SELLING a token we hold, emit an exit signal
+        if side == "SELL" and self._portfolio:
+            pos = self._portfolio.positions.get(token_id)
+            if pos and pos.side == "BUY":
+                exit_signal = Signal(
+                    signal_id=str(uuid.uuid4()),
+                    strategy="copy_trade",
+                    condition_id=market.condition_id,
+                    token_id=token_id,
+                    direction="SELL",
+                    model_prob=price - 0.03,
+                    market_prob=price,
+                    edge=0.03,
+                    net_edge=0.02,
+                    confidence=0.70,
+                    urgency="HIGH",
+                    created_at=time.time(),
+                    expires_at=time.time() + 60,
+                    stale_price=price,
+                    stale_threshold=0.05,
+                )
+                await self._signal_bus.put(exit_signal)
+                log.info(f"[WHALE EXIT] {maker[:8]}... selling {token_id[:8]} — emitting exit signal")
+                return
+
+        # Only copy BUY signals with sufficient size
+        if side != "BUY" or size_usd < 500:
             return
 
         # Check if price has already moved too much
@@ -331,9 +367,14 @@ class OnChainWatcher:
         if current_price > 0.93 or current_price < 0.07:
             return
 
-        # Conservative model: assume whale has ~3% edge
-        edge_assumption = 0.03
-        model_prob = current_price + edge_assumption if side == "BUY" else current_price - edge_assumption
+        # Sharpe-scaled edge: higher Sharpe wallet → more confident edge assumption
+        # Sharpe 1.5 (min threshold) → 1.5% edge
+        # Sharpe 3.0 → 3.0% edge
+        # Sharpe 5.0+ → 4.0% edge (capped)
+        wallet_sharpe = self._wallet_sharpes.get(maker.lower(), config.COPY_TRADE_MIN_SHARPE)
+        edge_assumption = min(wallet_sharpe * 0.01, 0.04)
+
+        model_prob = current_price + edge_assumption
         model_prob = max(0.01, min(0.99, model_prob))
 
         fee_pct = config.TAKER_FEE_RATE * (1 - current_price)
@@ -343,9 +384,17 @@ class OnChainWatcher:
         if net_edge < config.MIN_EDGE_AFTER_FEES:
             return
 
+        # Confidence scales with wallet Sharpe and trade size
+        # Sharpe 1.5, $500 trade → 0.55 confidence
+        # Sharpe 4.0, $10k trade → 0.85 confidence
+        size_factor = min(math.log10(max(size_usd, 500)) / math.log10(10000), 1.0)
+        sharpe_factor = min(wallet_sharpe / 5.0, 1.0)
+        confidence = 0.50 + 0.35 * size_factor * sharpe_factor
+
         log.info(
-            f"[WHALE COPY] {maker[:8]}... ${size_usd:,.0f} {side} @ {price:.4f} "
-            f"| {market.question[:40]} | net_edge={net_edge:.2%}"
+            f"[WHALE COPY] {maker[:8]}... ${size_usd:,.0f} BUY @ {price:.4f} "
+            f"sharpe={wallet_sharpe:.1f} edge={net_edge:.2%} conf={confidence:.2f} "
+            f"| {market.question[:40]}"
         )
 
         signal = Signal(
@@ -353,15 +402,15 @@ class OnChainWatcher:
             strategy="copy_trade",
             condition_id=market.condition_id,
             token_id=token_id,
-            direction=side,
+            direction="BUY",
             model_prob=model_prob,
             market_prob=current_price,
             edge=gross_edge,
             net_edge=net_edge,
-            confidence=0.65,
+            confidence=confidence,
             urgency="IMMEDIATE",
             created_at=time.time(),
-            expires_at=time.time() + 120,   # 2 minute TTL
+            expires_at=time.time() + 120,
             stale_price=current_price,
             stale_threshold=config.COPY_TRADE_MAX_PRICE_SLIP,
         )

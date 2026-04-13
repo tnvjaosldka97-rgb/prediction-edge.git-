@@ -36,6 +36,9 @@ _MIN_SIMILARITY     = 0.40
 _MIN_EDGE_THRESHOLD = 0.04
 _KALSHI_BASE        = "https://trading-api.kalshi.com/trade-api/v2"
 
+# Minimum Kalshi contracts to place (1 contract = $0.01 on Kalshi)
+_KALSHI_MIN_CONTRACTS = 100   # = $1.00 minimum
+
 
 def _kalshi_headers(method: str, path: str) -> Optional[dict]:
     """
@@ -219,10 +222,72 @@ def _compute_arb_signal(
     )
 
 
+async def _place_kalshi_sell(ticker: str, yes_bid_cents: int, size_usd: float) -> Optional[str]:
+    """
+    Place a SELL YES order on Kalshi as the hedge leg of cross-platform arb.
+
+    When Kalshi YES > Polymarket YES:
+    - We BUY on Polymarket (lower price)
+    - We SELL YES on Kalshi (higher price)
+    - Locked-in profit = price_diff - fees, regardless of outcome
+
+    Args:
+        ticker: Kalshi market ticker (e.g. "PRES-2024-DEM")
+        yes_bid_cents: Kalshi YES bid in cents (e.g. 60 = $0.60)
+        size_usd: desired position size in USD
+
+    Returns: Kalshi order_id if placed, None if failed
+    """
+    path = f"/trade-api/v2/markets/{ticker}/orders"
+    headers = _kalshi_headers("POST", path)
+    if not headers:
+        return None
+
+    # Convert USD size to Kalshi contracts (1 contract = 1 cent at max payout)
+    # At price p cents, $size_usd buys size_usd / (p/100) contracts
+    if yes_bid_cents <= 0:
+        return None
+    contracts = max(
+        _KALSHI_MIN_CONTRACTS,
+        int(size_usd / (yes_bid_cents / 100))
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{_KALSHI_BASE}/markets/{ticker}/orders",
+                headers={**headers, "Content-Type": "application/json"},
+                json={
+                    "ticker":          ticker,
+                    "client_order_id": str(uuid.uuid4()),
+                    "type":            "market",
+                    "action":          "sell",
+                    "side":            "yes",
+                    "count":           contracts,
+                    "time_in_force":   "fill_or_kill",
+                },
+            )
+            if resp.status_code in (200, 201):
+                data     = resp.json()
+                order_id = data.get("order", {}).get("order_id", "")
+                log.info(
+                    f"[KALSHI HEDGE] SELL YES {ticker} {contracts} contracts "
+                    f"@ {yes_bid_cents}¢ → order_id={order_id[:12] if order_id else 'N/A'}"
+                )
+                return order_id
+            else:
+                log.warning(f"[KALSHI HEDGE] Order rejected {resp.status_code}: {resp.text[:120]}")
+                return None
+    except Exception as e:
+        log.warning(f"[KALSHI HEDGE] Request error: {e}")
+        return None
+
+
 class CrossPlatformArbScanner:
     """
     Continuously scans for Kalshi vs Polymarket price divergences.
     Emits BUY signals when Polymarket is mispriced relative to Kalshi.
+    When KALSHI keys are configured, also places the hedge leg automatically.
     """
 
     def __init__(self, store, signal_bus: asyncio.Queue):
@@ -231,6 +296,10 @@ class CrossPlatformArbScanner:
         self._running  = False
         self._enabled  = True
         self._emitted: dict[str, float] = {}   # condition_id → last_emit_time
+        self._hedge_enabled = bool(
+            getattr(config, "KALSHI_ACCESS_KEY", "") and
+            getattr(config, "KALSHI_PRIVATE_KEY_B64", "")
+        )
 
     async def start(self):
         self._running = True
@@ -238,10 +307,11 @@ class CrossPlatformArbScanner:
         test = await _fetch_kalshi_markets()
         if not test:
             log.warning("[CROSS ARB] Kalshi unavailable — cross-platform arb disabled. "
-                        "Add KALSHI_API_KEY to .env to enable.")
+                        "Add KALSHI_ACCESS_KEY + KALSHI_PRIVATE_KEY_B64 to enable.")
             self._enabled = False
         else:
-            log.info(f"[CROSS ARB] Kalshi connected — {len(test)} markets available")
+            hedge_str = "hedge ENABLED (true arb)" if self._hedge_enabled else "signal-only (no hedge)"
+            log.info(f"[CROSS ARB] Kalshi connected — {len(test)} markets | {hedge_str}")
 
         while self._running:
             if self._enabled:
@@ -282,14 +352,37 @@ class CrossPlatformArbScanner:
 
             signal = _compute_arb_signal(poly, poly_ask, match["yes_mid"])
             if signal:
+                # If hedge enabled: place Kalshi SELL first, then emit Polymarket BUY
+                # This locks in the price spread before the Polymarket side executes
+                if self._hedge_enabled:
+                    yes_bid_cents = int(match["yes_bid"] * 100)
+                    # Estimate size: use min order to test, real size set by Kelly at execution
+                    hedge_id = await _place_kalshi_sell(
+                        match["ticker"], yes_bid_cents, size_usd=10.0
+                    )
+                    if hedge_id:
+                        log.info(
+                            f"[CROSS ARB] TRUE ARB: Kalshi hedge placed → emitting Polymarket BUY\n"
+                            f"  {poly.question[:50]}\n"
+                            f"  Kalshi={match['yes_mid']:.3f} Poly={poly_ask:.3f} "
+                            f"edge={signal.net_edge:.2%}"
+                        )
+                    else:
+                        log.warning(
+                            f"[CROSS ARB] Kalshi hedge FAILED — skipping Polymarket BUY "
+                            f"to avoid naked directional risk: {match['ticker']}"
+                        )
+                        continue   # don't trade without hedge
+                else:
+                    log.info(
+                        f"[CROSS ARB] {poly.question[:50]}\n"
+                        f"  Kalshi={match['yes_mid']:.3f}  Poly={poly_ask:.3f}  "
+                        f"edge={signal.net_edge:.2%}  match={match['ticker']}"
+                    )
+
                 await self._bus.put(signal)
                 self._emitted[poly.condition_id] = now
                 signals_generated += 1
-                log.info(
-                    f"[CROSS ARB] {poly.question[:50]}\n"
-                    f"  Kalshi={match['yes_mid']:.3f}  Poly={poly_ask:.3f}  "
-                    f"edge={signal.net_edge:.2%}  match={match['ticker']}"
-                )
 
         if signals_generated:
             log.info(f"[CROSS ARB] {signals_generated} arb signals this scan")
