@@ -44,9 +44,11 @@ MIN_EDGE_AFTER_FEES    = float(os.getenv("MIN_EDGE_AFTER_FEES", "0.02"))   # env
 MIN_ORDER_SIZE_USD     = 2.0
 MAX_SINGLE_MARKET_PCT  = 0.08
 MAX_CATEGORY_PCT       = 0.25
-MAX_DRAWDOWN_HALT      = 0.20
-MAX_DRAWDOWN_REDUCE    = 0.12
-WHALE_THRESHOLD_USD    = int(os.getenv("WHALE_THRESHOLD_USD", "1000"))     # $1000으로 하향
+MAX_DRAWDOWN_HALT        = 0.20
+MAX_DRAWDOWN_REDUCE      = 0.12
+MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "8"))
+MAX_DAILY_TRADES         = int(os.getenv("MAX_DAILY_TRADES", "30"))
+WHALE_THRESHOLD_USD      = int(os.getenv("WHALE_THRESHOLD_USD", "1000"))     # $1000으로 하향
 VOLUME_SPIKE_RATIO     = 3.0         # 3x 급등으로 낮춤 (5x는 너무 드묾)
 
 # ── Market making ────────────────────────────────────────────────────────────

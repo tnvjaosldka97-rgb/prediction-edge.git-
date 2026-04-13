@@ -5,9 +5,27 @@ If any check fails, the order is rejected regardless of edge.
 These are the circuit breakers that prevent catastrophic losses.
 """
 from __future__ import annotations
+import time
 from core.models import Order, Signal, PortfolioState, Market
 from core.logger import log
 import config
+
+# ── 일일 트레이드 카운터 (프로세스 내 상태) ───────────────────────────────────
+_daily_trade_count: int = 0
+_daily_reset_ts: float = 0.0
+
+MAX_CONCURRENT_POSITIONS = int(getattr(config, "MAX_CONCURRENT_POSITIONS", 8))
+MAX_DAILY_TRADES         = int(getattr(config, "MAX_DAILY_TRADES", 30))
+
+
+def record_trade_executed():
+    """gateway.py에서 fill 발생 시 호출 — 일일 카운터 증가."""
+    global _daily_trade_count, _daily_reset_ts
+    now = time.time()
+    if now - _daily_reset_ts > 86400:
+        _daily_trade_count = 0
+        _daily_reset_ts = now
+    _daily_trade_count += 1
 
 
 def check_all(
@@ -22,7 +40,23 @@ def check_all(
     All checks must pass for the order to be submitted.
     """
 
-    # 1. Drawdown halt
+    # 0. 일일 트레이드 한도
+    global _daily_trade_count, _daily_reset_ts
+    now = time.time()
+    if now - _daily_reset_ts > 86400:
+        _daily_trade_count = 0
+        _daily_reset_ts = now
+    if _daily_trade_count >= MAX_DAILY_TRADES:
+        return False, f"DAILY LIMIT: {_daily_trade_count}/{MAX_DAILY_TRADES} trades today"
+
+    # 1. 동시 포지션 한도
+    open_positions = len(portfolio.positions)
+    if open_positions >= MAX_CONCURRENT_POSITIONS:
+        # oracle_convergence는 항상 허용 (수렴 기회 놓치면 안 됨)
+        if not (signal and signal.strategy == "oracle_convergence"):
+            return False, f"POSITION LIMIT: {open_positions}/{MAX_CONCURRENT_POSITIONS} open"
+
+    # 2. Drawdown halt
     if portfolio.drawdown >= config.MAX_DRAWDOWN_HALT:
         return False, f"DRAWDOWN HALT: {portfolio.drawdown:.1%} >= {config.MAX_DRAWDOWN_HALT:.1%}"
 

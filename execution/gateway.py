@@ -19,7 +19,7 @@ from typing import Optional, Callable
 import config
 from core.models import Order, Fill, PortfolioState, Signal, Market
 from core.logger import log
-from risk.limits import check_all, should_halve_size
+from risk.limits import check_all, should_halve_size, record_trade_executed
 from core import db
 from execution.order_tracker import is_duplicate, register_inflight, OrderTracker
 
@@ -367,6 +367,7 @@ class ExecutionGateway:
 
                 # Immediate full fill
                 if size_matched > 0:
+                    record_trade_executed()
                     fee = fill_price * (1 - fill_price) * config.TAKER_FEE_RATE * size_matched
                     fill = Fill(
                         order_id=order_id,

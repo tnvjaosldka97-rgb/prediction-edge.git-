@@ -156,6 +156,21 @@ class FeeArbitrageScanner:
         if market.dispute_risk > config.ORACLE_DISPUTE_THRESHOLD_WARN:
             return None
 
+        # ── 유동성 필터 ───────────────────────────────────────────────────────
+        # 거래량 없는 시장 = 스프레드 크고, 진입/청산 어려움
+        if market.volume_24h < 5_000:
+            return None
+
+        # 오더북 실제 깊이 확인 — 우리 주문 크기만큼 유동성 있어야 함
+        book = self._store.get_orderbook(token.token_id)
+        if book and not book.is_stale():
+            # 합성 오더북(depth=500) 제외
+            if book.ask_depth(levels=1) >= 490:
+                return None
+            # best ask가 실제로 close-to-price 인지 확인
+            if book.best_ask > 0 and abs(book.best_ask - price) > 0.03:
+                return None  # 오더북 가격이 시장 가격과 3센트 이상 괴리
+
         # Throttle: only signal once per market per 30 min
         cache_key = token.token_id
         last = self._extreme_emitted.get(cache_key, 0)
