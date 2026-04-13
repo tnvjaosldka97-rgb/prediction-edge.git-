@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prediction Edge — Live Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0a0e1a; color: #e0e6f0; font-family: 'Segoe UI', monospace; font-size: 13px; }
@@ -148,6 +149,25 @@
 
   .pnl-positive { color: #66bb6a; }
   .pnl-negative { color: #ef5350; }
+
+  .coin-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 13px 24px 16px; }
+  .coin-card {
+    background: #0d1526;
+    border: 1px solid #1e3a5f;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .coin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #1a2f4a;
+  }
+  .coin-symbol { font-size: 16px; font-weight: bold; color: #4fc3f7; }
+  .coin-price { font-size: 20px; font-weight: bold; }
+  .coin-change { font-size: 13px; font-weight: bold; }
+  .coin-chart-wrap { padding: 8px 12px 12px; height: 180px; position: relative; }
 </style>
 </head>
 <body>
@@ -194,6 +214,7 @@
   <div class="tab" onclick="switchTab('signals')">신호 내역</div>
   <div class="tab" onclick="switchTab('trades')">거래 내역</div>
   <div class="tab" onclick="switchTab('positions')">포지션</div>
+  <div class="tab" onclick="switchTab('coins')">코인 차트</div>
 </div>
 
 <!-- Markets Tab -->
@@ -295,17 +316,67 @@
   </div>
 </div>
 
+<!-- Coins Tab -->
+<div id="tab-coins" class="tab-content">
+  <div class="coin-grid">
+    <div class="coin-card" id="card-BTC">
+      <div class="coin-header">
+        <span class="coin-symbol">₿ BTC</span>
+        <div style="text-align:right;">
+          <div class="coin-price" id="price-BTC">--</div>
+          <div class="coin-change" id="change-BTC">--</div>
+        </div>
+      </div>
+      <div class="coin-chart-wrap"><canvas id="chart-BTC"></canvas></div>
+    </div>
+    <div class="coin-card" id="card-ETH">
+      <div class="coin-header">
+        <span class="coin-symbol">Ξ ETH</span>
+        <div style="text-align:right;">
+          <div class="coin-price" id="price-ETH">--</div>
+          <div class="coin-change" id="change-ETH">--</div>
+        </div>
+      </div>
+      <div class="coin-chart-wrap"><canvas id="chart-ETH"></canvas></div>
+    </div>
+    <div class="coin-card" id="card-SOL">
+      <div class="coin-header">
+        <span class="coin-symbol">◎ SOL</span>
+        <div style="text-align:right;">
+          <div class="coin-price" id="price-SOL">--</div>
+          <div class="coin-change" id="change-SOL">--</div>
+        </div>
+      </div>
+      <div class="coin-chart-wrap"><canvas id="chart-SOL"></canvas></div>
+    </div>
+    <div class="coin-card" id="card-MATIC">
+      <div class="coin-header">
+        <span class="coin-symbol">⬡ MATIC</span>
+        <div style="text-align:right;">
+          <div class="coin-price" id="price-MATIC">--</div>
+          <div class="coin-change" id="change-MATIC">--</div>
+        </div>
+      </div>
+      <div class="coin-chart-wrap"><canvas id="chart-MATIC"></canvas></div>
+    </div>
+  </div>
+  <div style="text-align:center;color:#546e7a;font-size:11px;padding:4px 0 12px;">
+    출처: CoinGecko · 60초 캐시 · 7일 차트 (4시간 간격)
+  </div>
+</div>
+
 <script>
 let currentTab = 'markets';
 
 function switchTab(name) {
+  const names = ['markets','opps','signals','trades','positions','coins'];
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const names = ['markets','opps','signals','trades','positions'];
     t.classList.toggle('active', names[i] === name);
   });
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   currentTab = name;
+  if (name === 'coins') updateCoins(true);
 }
 
 function fmt(n, dec=2) { return n != null ? Number(n).toFixed(dec) : '--'; }
@@ -472,6 +543,86 @@ async function updatePositions() {
   ).join('');
 }
 
+// ── Coin Charts ──────────────────────────────────────────────────────────────
+const _charts = {};
+const _coinColors = { BTC: '#f7931a', ETH: '#627eea', SOL: '#9945ff', MATIC: '#8247e5' };
+let _coinsLoaded = false;
+
+function _makeChart(coin, labels, prices) {
+  const ctx = document.getElementById('chart-' + coin);
+  if (!ctx) return;
+  const color = _coinColors[coin] || '#4fc3f7';
+  if (_charts[coin]) _charts[coin].destroy();
+  _charts[coin] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: prices,
+        borderColor: color,
+        backgroundColor: color + '22',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => '$' + Number(ctx.raw).toLocaleString() }
+      }},
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: '#1a2f4a' },
+          ticks: { color: '#546e7a', font: { size: 10 },
+            callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(1) + 'K' : v) }
+        }
+      }
+    }
+  });
+}
+
+let _coinsFetching = false;
+async function updateCoins(force = false) {
+  if (currentTab !== 'coins' && !force) return;
+  if (_coinsFetching) return;
+  _coinsFetching = true;
+  try {
+    const prices = await fetchJSON('/api/prices');
+    if (prices) {
+      for (const [sym, d] of Object.entries(prices)) {
+        const el = document.getElementById('price-' + sym);
+        const ch = document.getElementById('change-' + sym);
+        if (el) el.textContent = '$' + Number(d.price).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        if (ch) {
+          const up = d.change_24h >= 0;
+          ch.textContent = (up ? '▲ +' : '▼ ') + d.change_24h.toFixed(2) + '%';
+          ch.style.color = up ? '#66bb6a' : '#ef5350';
+        }
+      }
+    }
+    if (!_coinsLoaded) {
+      // Load 7-day charts once
+      for (const sym of ['BTC', 'ETH', 'SOL', 'MATIC']) {
+        const hist = await fetchJSON('/api/price_history/' + sym);
+        if (hist && hist.length) {
+          const labels = hist.map(p => {
+            const d = new Date(p.t);
+            return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + 'h';
+          });
+          _makeChart(sym, labels, hist.map(p => p.p));
+        }
+      }
+      _coinsLoaded = true;
+    }
+  } finally {
+    _coinsFetching = false;
+  }
+}
+
 async function tick() {
   await updateStats();
   await updateMarkets();
@@ -479,11 +630,14 @@ async function tick() {
   await updateSignals();
   await updateTrades();
   await updatePositions();
+  await updateCoins();
 }
 
 // Initial load + 3s refresh
 tick();
 setInterval(tick, 3000);
+// Refresh coin spot prices every 60s
+setInterval(() => { if (currentTab === 'coins') updateCoins(true); }, 60000);
 </script>
 </body>
 </html>

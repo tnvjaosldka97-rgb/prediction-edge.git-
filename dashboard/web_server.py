@@ -7,6 +7,7 @@ import asyncio
 import time
 import sqlite3
 from typing import Optional
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +21,14 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 _store = None
 _portfolio = None
 _gateway_stats = None
+
+# Coin price cache — refresh every 60s to avoid CoinGecko 429
+_price_cache: dict = {}
+_price_cache_ts: float = 0.0
+_PRICE_CACHE_TTL = 60.0
+
+_COINS = ["bitcoin", "ethereum", "matic-network", "solana"]
+_COIN_LABELS = {"bitcoin": "BTC", "ethereum": "ETH", "matic-network": "MATIC", "solana": "SOL"}
 
 
 def init(store, portfolio, gateway_stats_fn):
@@ -182,6 +191,66 @@ async def api_opportunities():
         "near_certain": near_certain[:20],
         "total_markets": len(markets),
     }
+
+
+@app.get("/api/prices")
+async def api_prices():
+    """Crypto spot prices + 24h change. Cached 60s to avoid CoinGecko rate limit."""
+    global _price_cache, _price_cache_ts
+    now = time.time()
+    if now - _price_cache_ts < _PRICE_CACHE_TTL and _price_cache:
+        return _price_cache
+
+    try:
+        ids = ",".join(_COINS)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": ids, "vs_currencies": "usd", "include_24hr_change": "true"},
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code == 200:
+                raw = resp.json()
+                result = {}
+                for coin_id in _COINS:
+                    d = raw.get(coin_id, {})
+                    result[_COIN_LABELS[coin_id]] = {
+                        "price": d.get("usd", 0),
+                        "change_24h": round(d.get("usd_24h_change", 0), 2),
+                    }
+                _price_cache = result
+                _price_cache_ts = now
+                return result
+    except Exception:
+        pass
+
+    # Return stale cache if available, else empty
+    return _price_cache or {}
+
+
+@app.get("/api/price_history/{coin}")
+async def api_price_history(coin: str):
+    """7-day hourly price history for charts."""
+    coin_map = {"BTC": "bitcoin", "ETH": "ethereum", "MATIC": "matic-network", "SOL": "solana"}
+    coin_id = coin_map.get(coin.upper())
+    if not coin_id:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+                params={"vs_currency": "usd", "days": "7", "interval": "hourly"},
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                prices = data.get("prices", [])
+                # Downsample: every 4th point (every 4 hours)
+                sampled = prices[::4]
+                return [{"t": p[0], "p": round(p[1], 2)} for p in sampled]
+    except Exception:
+        pass
+    return []
 
 
 @app.get("/api/stats")
