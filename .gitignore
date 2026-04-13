@@ -1,0 +1,11 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+market_relations.json
+logs/
+venv/
