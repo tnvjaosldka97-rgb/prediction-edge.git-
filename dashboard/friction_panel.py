@@ -141,6 +141,29 @@ async def calibration_history(_: dict = Depends(auth.require_admin), limit: int 
     return {"snapshots": out}
 
 
+@router.get("/portfolio_metrics")
+async def portfolio_metrics(_: dict = Depends(auth.require_admin), window_days: float = 30):
+    """Sharpe / Sortino / max drawdown 등 고급 지표."""
+    from core.metrics import compute_portfolio_metrics
+    from dataclasses import asdict
+    pm = compute_portfolio_metrics(window_days=window_days)
+    return asdict(pm)
+
+
+@router.get("/strategy_eval")
+async def strategy_eval(_: dict = Depends(auth.require_admin), window_days: float = 7):
+    """전략별 자동 비활성화 평가."""
+    from risk.strategy_disabler import evaluate_strategy
+    state_path = __import__("pathlib").Path(__file__).resolve().parent.parent / "runtime_state.json"
+    if state_path.exists():
+        import json
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        strategies = list(state.get("strategies_enabled", {}).keys())
+    else:
+        strategies = ["closing_convergence", "claude_oracle", "fee_arbitrage", "exit_signal"]
+    return {"evaluations": [evaluate_strategy(s, window_days) for s in strategies]}
+
+
 @router.get("/recent_traces")
 async def recent_traces(_: dict = Depends(auth.require_admin), limit: int = 50):
     """최근 trace 50건 — 상세 디버깅용."""

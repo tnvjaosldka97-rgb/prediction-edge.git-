@@ -663,6 +663,13 @@ async def main():
         name="auto_calibrate"
     ))
 
+    # Day 8: 전략 자동 비활성화 — 매시간 t-검정으로 음수 유의 전략 OFF
+    from risk.strategy_disabler import auto_disable_loop
+    tasks.append(asyncio.create_task(
+        auto_disable_loop(interval_sec=3600),
+        name="auto_disable"
+    ))
+
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
     # and update virtual_trades with realized PnL. Runs only in DRY_RUN
     # since shadow data is only recorded in DRY_RUN path.
