@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>prediction_edge — Control Panel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "SF Pro Display", "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+         background: #0a0e14; color: #c9d1d9; padding: 16px; min-height: 100vh; }
+  h1 { color: #58a6ff; font-size: 1.4em; margin-bottom: 16px; }
+  h2 { color: #58a6ff; font-size: 1.05em; margin: 16px 0 8px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+          padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 12px;
+           font-size: 0.85em; font-weight: 600; }
+  .badge-DRY_RUN { background: #1f6feb40; color: #58a6ff; }
+  .badge-SHADOW { background: #d29922 40; color: #d29922; }
+  .badge-LIVE_PILOT { background: #da363340; color: #f85149; }
+  .badge-LIVE_FULL { background: #da3633; color: #ffffff; }
+  button { background: #238636; color: white; border: 0; border-radius: 6px;
+           padding: 8px 14px; cursor: pointer; font-size: 0.9em; font-weight: 600; }
+  button:hover { background: #2ea043; }
+  button.danger { background: #da3633; }
+  button.danger:hover { background: #f85149; }
+  button.warn { background: #d29922; }
+  button:disabled { background: #30363d; cursor: not-allowed; }
+  input, select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+                  border-radius: 6px; padding: 6px 10px; font-size: 0.9em; }
+  .stat { display: flex; justify-content: space-between; padding: 6px 0;
+          border-bottom: 1px solid #21262d; }
+  .stat:last-child { border-bottom: 0; }
+  .stat-key { color: #8b949e; font-size: 0.85em; }
+  .stat-val { color: #c9d1d9; font-weight: 600; }
+  .strategy-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .strategy-toggle { background: #21262d; padding: 6px 10px; border-radius: 6px;
+                     display: flex; align-items: center; gap: 6px; }
+  .strategy-toggle.on { background: #238636; }
+  .strategy-toggle.off { background: #30363d; opacity: 0.6; }
+  .login-form { max-width: 320px; margin: 80px auto; }
+  .hidden { display: none; }
+  .audit-row { font-size: 0.85em; color: #8b949e; padding: 4px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #21262d; }
+  th { color: #58a6ff; font-weight: 600; }
+  .hist-bar { height: 18px; background: #1f6feb; border-radius: 2px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 18px;
+           border-radius: 6px; background: #238636; color: white; }
+  .toast.error { background: #da3633; }
+</style>
+</head>
+<body>
+
+<div id="login-section" class="login-form card">
+  <h1>로그인</h1>
+  <input type="password" id="login-password" placeholder="비밀번호" style="width:100%; margin-bottom:8px;">
+  <button onclick="login()" style="width:100%;">로그인</button>
+  <div id="login-error" style="color:#f85149; margin-top:8px; font-size:0.85em;"></div>
+</div>
+
+<div id="panel" class="hidden">
+  <h1>prediction_edge — Control Panel
+    <span id="mode-badge" class="badge" style="margin-left:12px;">…</span>
+  </h1>
+
+  <div class="card">
+    <h2>운영 상태</h2>
+    <div class="stat"><span class="stat-key">현재 모드</span><span class="stat-val" id="cur-mode">-</span></div>
+    <div class="stat"><span class="stat-key">자본 한도</span><span class="stat-val" id="cur-cap">-</span></div>
+    <div class="stat"><span class="stat-key">최대 손실</span><span class="stat-val" id="cur-loss">-</span></div>
+    <div class="stat"><span class="stat-key">마지막 변경</span><span class="stat-val" id="cur-modified">-</span></div>
+  </div>
+
+  <div class="card">
+    <h2>모드 변경</h2>
+    <div class="row">
+      <button onclick="changeMode('DRY_RUN')">DRY_RUN</button>
+      <button class="warn" onclick="changeMode('SHADOW')">SHADOW</button>
+      <button class="danger" onclick="promoteLive('LIVE_PILOT')">▶ LIVE_PILOT</button>
+      <button class="danger" onclick="promoteLive('LIVE_FULL')">▶▶ LIVE_FULL</button>
+    </div>
+    <div style="font-size:0.8em; color:#8b949e; margin-top:8px;">
+      LIVE 진입 시 "PROMOTE" 입력 + 최근 5분 내 로그인 필요
+    </div>
+  </div>
+
+  <div class="card" style="background: #2d1416; border-color: #da3633;">
+    <h2 style="color:#f85149;">🚨 비상정지</h2>
+    <div style="margin-bottom: 8px; color: #ffa198;">
+      모드를 즉시 DRY_RUN으로 + killswitch trip + 모든 미체결 주문 취소 시도
+    </div>
+    <button class="danger" onclick="emergencyStop()" style="width:100%; padding:14px;">EMERGENCY STOP</button>
+  </div>
+
+  <div class="card">
+    <h2>자본 한도</h2>
+    <div class="row">
+      <input type="number" id="cap-input" min="5" max="10000" step="5" value="50">
+      <button onclick="setCap()">한도 변경</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>전략 ON/OFF</h2>
+    <div class="strategy-list" id="strategies">…</div>
+  </div>
+
+  <div class="card">
+    <h2>마찰 분석 (최근 24h)</h2>
+    <div id="friction-summary">…</div>
+    <div style="margin-top: 12px;">
+      <button onclick="triggerCalibration()">수동 캘리브레이션</button>
+      <span id="calibrate-result" style="margin-left: 12px; color:#8b949e; font-size:0.85em;"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>지연 시간 분포</h2>
+    <table id="latency-hist"><thead><tr><th>구간</th><th>건수</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>거부 사유</h2>
+    <table id="rejection-table"><thead><tr><th>사유</th><th>건수</th><th>%</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>감사 로그 (최근 20건)</h2>
+    <table id="audit-table"><thead><tr><th>시각</th><th>액션</th><th>actor</th><th>IP</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div style="text-align:right; margin-top: 24px;">
+    <button onclick="logout()" style="background:#30363d;">로그아웃</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const API = '';
+
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isError ? ' error' : '');
+  setTimeout(() => t.className = 'toast hidden', 3000);
+}
+
+async function login() {
+  const password = document.getElementById('login-password').value;
+  try {
+    const r = await fetch('/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password}),
+      credentials: 'include',
+    });
+    if (!r.ok) {
+      const err = await r.json();
+      document.getElementById('login-error').textContent = err.detail || 'Login failed';
+      return;
+    }
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('panel').classList.remove('hidden');
+    refresh();
+  } catch (e) {
+    document.getElementById('login-error').textContent = e.message;
+  }
+}
+
+async function logout() {
+  await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+  document.getElementById('panel').classList.add('hidden');
+  document.getElementById('login-section').classList.remove('hidden');
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, {
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    ...opts,
+  });
+  if (!r.ok) {
+    if (r.status === 401) {
+      document.getElementById('panel').classList.add('hidden');
+      document.getElementById('login-section').classList.remove('hidden');
+    }
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    const state = await api('/api/control/state');
+    document.getElementById('cur-mode').textContent = state.mode;
+    document.getElementById('cur-cap').textContent = '$' + state.bankroll_cap_usd;
+    document.getElementById('cur-loss').textContent = '$' + state.max_loss_usd;
+    document.getElementById('cur-modified').textContent = new Date(state.last_modified * 1000).toLocaleString();
+    document.getElementById('cap-input').value = state.bankroll_cap_usd;
+
+    const badge = document.getElementById('mode-badge');
+    badge.textContent = state.mode;
+    badge.className = 'badge badge-' + state.mode;
+
+    // 전략 ON/OFF
+    const strategies = document.getElementById('strategies');
+    strategies.innerHTML = '';
+    for (const [name, enabled] of Object.entries(state.strategies_enabled)) {
+      const div = document.createElement('div');
+      div.className = 'strategy-toggle ' + (enabled ? 'on' : 'off');
+      div.innerHTML = `<input type="checkbox" id="strat-${name}" ${enabled ? 'checked' : ''} onchange="toggleStrategy('${name}', this.checked)"> <label for="strat-${name}">${name}</label>`;
+      strategies.appendChild(div);
+    }
+
+    // 마찰 요약
+    const fric = await api('/api/friction/summary?since_hours=24');
+    document.getElementById('friction-summary').innerHTML = `
+      <div class="stat"><span class="stat-key">시도</span><span class="stat-val">${fric.n_total}</span></div>
+      <div class="stat"><span class="stat-key">체결</span><span class="stat-val">${fric.n_filled} (${(fric.fill_rate*100).toFixed(1)}%)</span></div>
+      <div class="stat"><span class="stat-key">부분체결</span><span class="stat-val">${fric.n_partial} (${(fric.partial_rate*100).toFixed(1)}%)</span></div>
+      <div class="stat"><span class="stat-key">거부</span><span class="stat-val">${fric.n_rejected}</span></div>
+      <div class="stat"><span class="stat-key">평균 latency</span><span class="stat-val">${fric.avg_latency_ms.toFixed(0)}ms (p95: ${fric.p95_latency_ms.toFixed(0)}ms)</span></div>
+      <div class="stat"><span class="stat-key">평균 slippage</span><span class="stat-val">${fric.avg_slippage_bps.toFixed(1)} bps</span></div>
+    `;
+
+    // 지연 히스토그램
+    const lat = await api('/api/friction/latency_histogram?since_hours=24');
+    const latBody = document.querySelector('#latency-hist tbody');
+    latBody.innerHTML = '';
+    const maxCount = Math.max(1, ...lat.bins.map(b => b.count));
+    for (const b of lat.bins) {
+      const tr = document.createElement('tr');
+      const w = (b.count / maxCount * 100).toFixed(0);
+      const range = b.end === Infinity ? `${b.start}+` : `${b.start}-${b.end}ms`;
+      tr.innerHTML = `<td>${range}</td><td>${b.count}</td><td><div class="hist-bar" style="width:${w}%"></div></td>`;
+      latBody.appendChild(tr);
+    }
+
+    // 거부 사유
+    const rej = await api('/api/friction/rejection_breakdown?since_hours=24');
+    const rejBody = document.querySelector('#rejection-table tbody');
+    rejBody.innerHTML = '';
+    if (rej.by_reason.length === 0) {
+      rejBody.innerHTML = '<tr><td colspan="3" style="color:#8b949e;">거부 없음</td></tr>';
+    }
+    for (const r of rej.by_reason) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.reason}</td><td>${r.count}</td><td>${r.pct.toFixed(2)}%</td>`;
+      rejBody.appendChild(tr);
+    }
+
+    // 감사 로그
+    const audit = await api('/api/control/audit_log?limit=20');
+    const auditBody = document.querySelector('#audit-table tbody');
+    auditBody.innerHTML = '';
+    for (const a of audit.entries) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${new Date(a.timestamp * 1000).toLocaleString()}</td>
+        <td>${a.action}</td>
+        <td>${a.actor}</td>
+        <td>${a.ip || '-'}</td>
+      `;
+      auditBody.appendChild(tr);
+    }
+  } catch (e) {
+    showToast('새로고침 실패: ' + e.message, true);
+  }
+}
+
+async function changeMode(mode) {
+  if (!confirm(`모드를 ${mode}로 변경?`)) return;
+  try {
+    await api('/api/control/mode', {
+      method: 'POST',
+      body: JSON.stringify({mode}),
+    });
+    showToast(`모드 ${mode} 적용됨`);
+    refresh();
+  } catch (e) {
+    showToast('실패: ' + e.message, true);
+  }
+}
+
+async function promoteLive(mode) {
+  const token = prompt(`${mode} 진입 — 확인을 위해 "PROMOTE" 입력:`);
+  if (token !== 'PROMOTE') {
+    showToast('취소됨', true);
+    return;
+  }
+  if (!confirm(`정말 ${mode}로 전환? 실제 자금 사용됨`)) return;
+  try {
+    await api('/api/control/mode', {
+      method: 'POST',
+      body: JSON.stringify({mode, confirm_token: 'PROMOTE'}),
+    });
+    showToast(`${mode} 활성화됨`);
+    refresh();
+  } catch (e) {
+    showToast('실패: ' + e.message, true);
+  }
+}
+
+async function emergencyStop() {
+  if (!confirm('비상정지 발동? 모든 거래 즉시 중단됨')) return;
+  try {
+    await api('/api/control/emergency_stop', { method: 'POST' });
+    showToast('비상정지 완료');
+    refresh();
+  } catch (e) {
+    showToast('실패: ' + e.message, true);
+  }
+}
+
+async function setCap() {
+  const cap = parseFloat(document.getElementById('cap-input').value);
+  if (!cap || cap < 5) { showToast('5 이상 입력', true); return; }
+  try {
+    await api('/api/control/bankroll_cap', {
+      method: 'POST',
+      body: JSON.stringify({bankroll_cap_usd: cap}),
+    });
+    showToast(`자본 한도 $${cap}`);
+    refresh();
+  } catch (e) {
+    showToast('실패: ' + e.message, true);
+  }
+}
+
+async function toggleStrategy(name, enabled) {
+  try {
+    await api('/api/control/strategy_toggle', {
+      method: 'POST',
+      body: JSON.stringify({strategy: name, enabled}),
+    });
+    showToast(`${name} ${enabled ? 'ON' : 'OFF'}`);
+    refresh();
+  } catch (e) {
+    showToast('실패: ' + e.message, true);
+    refresh();
+  }
+}
+
+async function triggerCalibration() {
+  document.getElementById('calibrate-result').textContent = '실행 중...';
+  try {
+    const r = await api('/api/control/calibrate', { method: 'POST' });
+    const rep = r.report;
+    document.getElementById('calibrate-result').textContent =
+      rep.saved
+        ? `✓ traces=${rep.n_traces}, latency_mu=${rep.latency_mu_ms.toFixed(0)}ms`
+        : `스킵: ${rep.skip_reason}`;
+  } catch (e) {
+    document.getElementById('calibrate-result').textContent = '실패: ' + e.message;
+  }
+}
+
+// 초기 로드 시 세션 살아있으면 자동 진입
+(async () => {
+  try {
+    await api('/api/control/state');
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('panel').classList.remove('hidden');
+    refresh();
+    setInterval(refresh, 30_000); // 30초마다 자동 새로고침
+  } catch {}
+})();
+
+// Enter로 로그인
+document.getElementById('login-password').addEventListener('keypress', e => {
+  if (e.key === 'Enter') login();
+});
+</script>
+
+</body>
+</html>

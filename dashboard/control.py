@@ -140,6 +140,19 @@ async def change_mode(
 
     ip = request.client.host if request.client else ""
     db.insert_audit_log("admin", "mode_change", before, state, ip, "")
+
+    # 모드 전환 알림 — LIVE 진입은 CRITICAL, 그 외 INFO
+    try:
+        from notifications.telegram import notify_async
+        level = "CRITICAL" if req.mode in ("LIVE_PILOT", "LIVE_FULL") else "INFO"
+        await notify_async(level, f"모드 전환: {before.get('mode')} → {req.mode}", {
+            "actor": "admin",
+            "ip": ip,
+            "bankroll_cap": state.get("bankroll_cap_usd"),
+        })
+    except Exception:
+        pass
+
     return {"ok": True, "state": state}
 
 
@@ -197,6 +210,18 @@ async def emergency_stop(
 
     ip = request.client.host if request.client else ""
     db.insert_audit_log("admin", "emergency_stop", before, state, ip, "")
+
+    # 텔레그램 알림 — 비상정지는 무조건 CRITICAL
+    try:
+        from notifications.telegram import notify_async
+        await notify_async("CRITICAL", "비상정지 발동", {
+            "trigger": "dashboard manual",
+            "previous_mode": before.get("mode"),
+            "ip": ip,
+        })
+    except Exception:
+        pass
+
     return {"ok": True, "state": state, "killswitch_tripped": True}
 
 

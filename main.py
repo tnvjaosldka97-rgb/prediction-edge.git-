@@ -265,6 +265,40 @@ async def snapshot_loop(portfolio: PortfolioState, initial_bankroll: float = 75.
             log.debug(f"Snapshot error: {e}")
 
 
+async def auto_calibrate_loop(orchestrator_holder: dict, interval_sec: int = 3600):
+    """
+    매시간 friction.calibrate 호출. trace 50건 이상 누적되면 모델 갱신.
+
+    orchestrator_holder는 dict 래퍼 — calibrate가 모델을 swap하면 다음 라이브
+    경로(향후 gateway가 사용할 때)도 동일 인스턴스 참조.
+    """
+    from friction.calibrate import calibrate, load_latest
+
+    # 부팅 시 가장 최근 캘리브레이션 복원
+    try:
+        if load_latest(orchestrator_holder["orchestrator"]):
+            log.info("[calibrate] loaded previous calibration snapshot on boot")
+    except Exception as e:
+        log.debug(f"[calibrate] no prior snapshot: {e}")
+
+    while True:
+        try:
+            await asyncio.sleep(interval_sec)
+            report = calibrate(orchestrator_holder["orchestrator"], min_traces=50)
+            if report.saved:
+                log.info(
+                    f"[calibrate] updated: traces={report.n_traces_used} "
+                    f"latency_mu={report.latency_mu_ms:.0f}ms "
+                    f"cancel_rate={report.cancel_rate:.1%} "
+                    f"rejections={report.n_rejected}"
+                )
+            else:
+                log.debug(f"[calibrate] skipped: {report.skip_reason}")
+        except Exception as e:
+            log.warning(f"[calibrate] loop error: {e}")
+            await asyncio.sleep(60)
+
+
 async def market_refresh_loop(store: MarketStore):
     """REST market refresh every 60s. Also synthesizes orderbooks so signals work without WebSocket."""
     while True:
@@ -620,6 +654,14 @@ async def main():
         asyncio.create_task(AutoTuner().start(),                       name="auto_tuner"),
         asyncio.create_task(snapshot_loop(portfolio, bankroll),          name="snapshot"),
     ]
+
+    # Day 7-A: 자동 캘리브레이션 루프 — 매시간 friction_traces 검사 후 모델 갱신
+    from friction.orchestrator import FrictionOrchestrator
+    _friction_holder = {"orchestrator": FrictionOrchestrator()}
+    tasks.append(asyncio.create_task(
+        auto_calibrate_loop(_friction_holder, interval_sec=3600),
+        name="auto_calibrate"
+    ))
 
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
     # and update virtual_trades with realized PnL. Runs only in DRY_RUN

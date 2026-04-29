@@ -33,6 +33,16 @@ try:
 except ImportError:
     pass
 
+
+# Day 7-B — control panel HTML
+@app.get("/control", response_class=HTMLResponse)
+async def control_panel():
+    from pathlib import Path
+    panel_path = Path(__file__).resolve().parent / "control_panel.html"
+    if panel_path.exists():
+        return panel_path.read_text(encoding="utf-8")
+    return "<h1>Control panel not found</h1>"
+
 # Shared references injected by main.py
 _store = None
 _portfolio = None

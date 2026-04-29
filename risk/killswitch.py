@@ -90,6 +90,8 @@ def trip(reason: str, **extra) -> None:
         f"[KILLSWITCH TRIPPED] reason={reason} — ALL NEW ORDERS BLOCKED. "
         f"Manual reset required (delete {_STATE_FILE.name})."
     )
+    # Telegram CRITICAL alert — fire and forget
+    _send_critical_alert(reason, extra)
 
 
 def reset() -> None:

@@ -564,6 +564,17 @@ class ExecutionGateway:
                         f"[FILL] {order.side} {size_matched:.4f}sh @ {fill_price:.4f} "
                         f"| ${size_matched * fill_price:.2f} | fee=${fee:.4f} | {order.strategy}"
                     )
+                    # 텔레그램 알림 — 라이브 체결만
+                    try:
+                        from notifications.telegram import notify
+                        notify("FILL", f"{order.side} {order.strategy}", {
+                            "size_usd": size_matched * fill_price,
+                            "price": fill_price,
+                            "fee": fee,
+                            "partial": is_partial,
+                        })
+                    except Exception:
+                        pass
                     return fill
 
                 # Order is open/resting — spawn tracker for fill monitoring
