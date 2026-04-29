@@ -18,6 +18,14 @@ import config
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Day 5 — control endpoints (auth + mode + emergency stop)
+try:
+    from dashboard.control import router as _control_router, auth_router as _auth_router
+    app.include_router(_control_router)
+    app.include_router(_auth_router)
+except ImportError:
+    pass  # graceful — dashboard 없이도 main.py 동작
+
 # Shared references injected by main.py
 _store = None
 _portfolio = None
