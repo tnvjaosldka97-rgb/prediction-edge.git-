@@ -148,11 +148,17 @@ class FrictionOrchestrator:
             empty.network_blip_during = True
             return empty
 
-        # 5. 체결 시점 호가창 — 백테스트면 미래 lookup, 라이브면 현재 호가 그대로
+        # 5. 체결 시점 호가창 — 백테스트면 미래 lookup, 라이브면 drift 적용
         if future_book_lookup is not None:
             future_book = future_book_lookup(fill_ts) or book_at_submit
         else:
-            future_book = book_at_submit
+            # 라이브 시뮬: latency 동안 책이 우리한테 불리하게 움직였다고 가정
+            try:
+                from friction.book_drift import estimate_drift, apply_drift_to_book
+                drift = estimate_drift(book_at_submit.token_id, side, lat.delay_ms)
+                future_book = apply_drift_to_book(book_at_submit, drift.drift_pct)
+            except Exception:
+                future_book = book_at_submit
 
         # 6. Slippage — 호가 walking
         walk: WalkResult = self.slippage.walk(side, size_usd, future_book)

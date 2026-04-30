@@ -220,6 +220,72 @@ async def virtual_execute(
     book: Optional[OrderBook] = store.get_orderbook(order.token_id) if store else None
     submit_ts = time.time()
 
+    # ── Pre-flight checks (concurrent limit + collateral) ────────────────
+    try:
+        from friction.concurrent_orders import get_tracker
+        tracker = get_tracker()
+        tracker.cleanup_stale()
+        ok, reason = tracker.can_submit()
+        if not ok:
+            log.info(f"[shadow] {order.side} ${order.size_usd:.2f} REJECTED — {reason}")
+            try:
+                db.insert_friction_trace({
+                    "order_id": f"shadow_rej_{uuid.uuid4().hex[:8]}",
+                    "submit_ts": submit_ts,
+                    "side": order.side,
+                    "requested_price": order.price,
+                    "requested_size_usd": order.size_usd,
+                    "rejection_reason": "concurrent_limit",
+                    "strategy": order.strategy or "",
+                })
+            except Exception:
+                pass
+            return None, None
+    except ImportError:
+        tracker = None
+
+    # ── Maker GTC: rest behavior 시뮬 (60s 윈도우, 부분 체결, cancel 가능) ──
+    if order.order_type == "GTC" and book and not book.is_stale():
+        try:
+            from friction.maker_rest import simulate_maker_rest
+            mid = book.mid_price or order.price
+            recent_vol = abs(mid - order.price) / max(0.001, mid)    # 단순 vol proxy
+            rest = simulate_maker_rest(
+                side=order.side,
+                size_usd=order.size_usd,
+                limit_price=order.price,
+                book_at_submit=book,
+                market_volatility_5m=recent_vol,
+            )
+            if not rest.filled:
+                log.info(
+                    f"[shadow] maker GTC {order.side} ${order.size_usd:.2f} @ {order.price:.4f} "
+                    f"NOT FILLED in 60s — cancelled"
+                )
+                try:
+                    db.insert_friction_trace({
+                        "order_id": f"shadow_maker_unfilled_{uuid.uuid4().hex[:8]}",
+                        "submit_ts": submit_ts,
+                        "side": order.side,
+                        "order_type": order.order_type,
+                        "is_maker": 1,
+                        "requested_price": order.price,
+                        "requested_size_usd": order.size_usd,
+                        "rejection_reason": "maker_timeout_cancelled",
+                        "submit_to_fill_ms": rest.time_to_fill_sec * 1000,
+                        "strategy": order.strategy or "",
+                    })
+                except Exception:
+                    pass
+                return None, None
+            # Maker 체결됐으면 size를 fill_ratio로 조정
+            if rest.fill_ratio < 1.0:
+                effective_size = order.size_usd * rest.fill_ratio
+                # 새 Order 객체 만들지 말고 size_usd만 임시 조정
+                order = order.model_copy(update={"size_usd": effective_size})
+        except Exception as e:
+            log.debug(f"[shadow] maker_rest sim failed: {e}")
+
     friction = _get_friction()
 
     # ── Friction-aware fill simulation ────────────────────────────────────
@@ -376,4 +442,11 @@ async def virtual_execute(
         timestamp=time.time(),
         strategy=order.strategy or "",
     )
+    # 동시 주문 트래커에 등록 (체결됐으니 즉시 close, 하지만 카운팅 위해)
+    if tracker:
+        try:
+            tracker.register(fill.order_id, order.size_usd, order.side)
+            tracker.mark_filled(fill.order_id)
+        except Exception:
+            pass
     return fill, trade_id
