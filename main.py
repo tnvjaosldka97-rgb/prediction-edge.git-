@@ -720,6 +720,25 @@ async def main():
         name="trailing_stop"
     ))
 
+    # Day 17: order book imbalance + LP mean reversion (main store 직접 사용)
+    from signals.order_book_imbalance import OrderBookImbalanceScanner
+    from signals.lp_mean_reversion import LPMeanReversionScanner
+    tasks.append(asyncio.create_task(
+        OrderBookImbalanceScanner(store, raw_signal_bus).start(),
+        name="ob_imbalance"
+    ))
+    tasks.append(asyncio.create_task(
+        LPMeanReversionScanner(store, raw_signal_bus).start(),
+        name="lp_mean_rev"
+    ))
+
+    # Day 17: DB 자동 백업 (24시간 간격)
+    from tools.backup_db import backup_loop
+    tasks.append(asyncio.create_task(
+        backup_loop(interval_sec=86400),
+        name="db_backup"
+    ))
+
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
     # and update virtual_trades with realized PnL. Runs only in DRY_RUN
     # since shadow data is only recorded in DRY_RUN path.
