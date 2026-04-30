@@ -670,6 +670,13 @@ async def main():
         name="auto_disable"
     ))
 
+    # Day 14: 매일 새 알파 가설 자동 탐색 + 검증
+    from research.agent import research_loop
+    tasks.append(asyncio.create_task(
+        research_loop(interval_hours=24),
+        name="research_agent"
+    ))
+
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
     # and update virtual_trades with realized PnL. Runs only in DRY_RUN
     # since shadow data is only recorded in DRY_RUN path.
