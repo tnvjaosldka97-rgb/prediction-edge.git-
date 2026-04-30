@@ -575,6 +575,18 @@ class ExecutionGateway:
                         })
                     except Exception:
                         pass
+                    # WebSocket 브로드캐스트 — 대시보드 즉시 갱신
+                    try:
+                        from dashboard.realtime import broadcast_event
+                        broadcast_event("fill", {
+                            "side": order.side,
+                            "size_usd": size_matched * fill_price,
+                            "price": fill_price,
+                            "strategy": order.strategy,
+                            "is_partial": is_partial,
+                        })
+                    except Exception:
+                        pass
                     return fill
 
                 # Order is open/resting — spawn tracker for fill monitoring

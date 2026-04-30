@@ -152,6 +152,12 @@ async def change_mode(
         })
     except Exception:
         pass
+    # WebSocket 즉시 브로드캐스트
+    try:
+        from dashboard.realtime import broadcast_event
+        broadcast_event("mode_change", {"from": before.get("mode"), "to": req.mode})
+    except Exception:
+        pass
 
     return {"ok": True, "state": state}
 

@@ -358,6 +358,51 @@ async function triggerCalibration() {
   }
 }
 
+let _ws = null;
+
+function connectWebSocket() {
+  if (_ws && _ws.readyState <= 1) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  _ws = new WebSocket(`${proto}//${location.host}/api/ws/live`);
+  _ws.onopen = () => {
+    console.log('[ws] connected');
+    setInterval(() => _ws.readyState === 1 && _ws.send('ping'), 30000);
+  };
+  _ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    handleEvent(ev);
+  };
+  _ws.onclose = () => {
+    console.log('[ws] closed, reconnect in 5s');
+    setTimeout(connectWebSocket, 5000);
+  };
+  _ws.onerror = (e) => console.warn('[ws]', e);
+}
+
+function handleEvent(ev) {
+  switch (ev.type) {
+    case 'fill':
+      showToast(`✅ ${ev.data.side} ${ev.data.strategy} $${ev.data.size_usd.toFixed(2)}`);
+      refresh();
+      break;
+    case 'mode_change':
+      showToast(`모드 ${ev.data.from} → ${ev.data.to}`);
+      refresh();
+      break;
+    case 'killswitch':
+      showToast(`🚨 Killswitch: ${ev.data.reason}`, true);
+      refresh();
+      break;
+    case 'calibration':
+      document.getElementById('calibrate-result').textContent =
+        `자동 캘리브레이션: traces=${ev.data.n_traces} latency=${ev.data.latency_mu_ms?.toFixed(0)}ms`;
+      break;
+    case 'signal':
+      // signal 이벤트는 너무 자주 와서 toast는 X, refresh만 가끔
+      break;
+  }
+}
+
 // 초기 로드 시 세션 살아있으면 자동 진입
 (async () => {
   try {
@@ -365,7 +410,8 @@ async function triggerCalibration() {
     document.getElementById('login-section').classList.add('hidden');
     document.getElementById('panel').classList.remove('hidden');
     refresh();
-    setInterval(refresh, 30_000); // 30초마다 자동 새로고침
+    connectWebSocket();
+    setInterval(refresh, 60_000); // WebSocket 있으면 60초로 늘려도 됨
   } catch {}
 })();
 

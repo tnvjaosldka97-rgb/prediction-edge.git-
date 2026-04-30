@@ -33,6 +33,13 @@ try:
 except ImportError:
     pass
 
+# Day 9 — WebSocket realtime broadcaster
+try:
+    from dashboard.realtime import router as _ws_router
+    app.include_router(_ws_router)
+except ImportError:
+    pass
+
 
 # Day 7-B — control panel HTML
 @app.get("/control", response_class=HTMLResponse)
