@@ -102,6 +102,18 @@ async def fill_consumer(fill_bus: asyncio.Queue, portfolio: PortfolioState, stor
                         dispute_risk_at_entry=market.dispute_risk if market else 0.0,
                     )
                 portfolio.bankroll -= fill.fill_price * fill.fill_size + fill.fee_paid
+                # Tax tracker — 매수 lot 등록 (한국 양도세 추적)
+                try:
+                    from core.tax_tracker import record_buy
+                    record_buy(
+                        trade_id=int(fill.timestamp),
+                        token_id=fill.token_id,
+                        shares=fill.fill_size,
+                        fill_price=fill.fill_price,
+                        strategy=getattr(fill, "strategy", "") or "",
+                    )
+                except Exception as _e:
+                    log.debug(f"[tax_tracker] buy record error: {_e}")
             elif fill.side == "SELL":
                 if key in portfolio.positions:
                     existing = portfolio.positions[key]
@@ -113,6 +125,18 @@ async def fill_consumer(fill_bus: asyncio.Queue, portfolio: PortfolioState, stor
                     # loss caps trip automatically after this record.
                     from risk import killswitch as _ks
                     _ks.record_trade_result(realized)
+                    # Tax tracker — 매도 lot 매칭 + taxable_event 생성
+                    try:
+                        from core.tax_tracker import record_sell
+                        record_sell(
+                            trade_id=int(fill.timestamp),
+                            token_id=fill.token_id,
+                            shares=fill.fill_size,
+                            fill_price=fill.fill_price,
+                            strategy=getattr(fill, "strategy", "") or "",
+                        )
+                    except Exception as _e:
+                        log.debug(f"[tax_tracker] sell record error: {_e}")
                     if new_size <= 0.001:
                         del portfolio.positions[key]
                     else:
@@ -736,6 +760,13 @@ async def main():
     tasks.append(asyncio.create_task(
         pnl_monitor_loop(portfolio, interval_sec=300),
         name="realtime_pnl"
+    ))
+
+    # Day 9 fix: position monitor — 단일 포지션 25%/40% 임계 알림
+    from risk.position_monitor import position_monitor_loop
+    tasks.append(asyncio.create_task(
+        position_monitor_loop(portfolio, interval_sec=300),
+        name="position_monitor"
     ))
 
     # Day 15: profit sweeper (매시간 임계 도달 평가, 사람 승인 필요)
