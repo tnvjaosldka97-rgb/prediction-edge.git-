@@ -89,3 +89,39 @@ def get_pool() -> RpcPool:
 
 def get_rpc_url() -> str:
     return get_pool().get()
+
+
+def call_with_failover(method_name: str, *args, **kwargs):
+    """web3 호출을 failover 풀로 wrapping. 단일 메서드 호출 retry.
+
+    사용 예:
+        block = call_with_failover('eth.block_number')
+        balance = call_with_failover('eth.get_balance', '0x...')
+    """
+    from web3 import Web3
+    pool = get_pool()
+    last_exc = None
+    for _ in range(len(pool.urls)):
+        url = pool.get()
+        try:
+            w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 5}))
+            obj = w3
+            for part in method_name.split("."):
+                obj = getattr(obj, part)
+            if callable(obj):
+                result = obj(*args, **kwargs)
+            else:
+                result = obj
+            pool.report_success(url)
+            return result
+        except Exception as e:
+            last_exc = e
+            pool.report_failure(url)
+            continue
+    raise last_exc or RuntimeError("all RPCs failed")
+
+
+def get_w3():
+    """현재 활성 RPC로 Web3 인스턴스 생성. 호출자가 try/except 처리."""
+    from web3 import Web3
+    return Web3(Web3.HTTPProvider(get_rpc_url(), request_kwargs={"timeout": 10}))

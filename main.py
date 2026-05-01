@@ -838,6 +838,20 @@ async def main():
         name="memory_monitor"
     ))
 
+    # Day 18: 포지션 reconciliation (10분 간격) — CLOB 실제 vs 우리 portfolio 비교
+    from risk.reconciler_check import reconciliation_loop
+    tasks.append(asyncio.create_task(
+        reconciliation_loop(portfolio, gateway, interval_sec=600),
+        name="reconciler_check"
+    ))
+
+    # Day 18: DB 헬스 + 자동 복원 (5분 간격)
+    from core.db_recovery import db_health_loop
+    tasks.append(asyncio.create_task(
+        db_health_loop(interval_sec=300),
+        name="db_health"
+    ))
+
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
     # and update virtual_trades with realized PnL. Runs only in DRY_RUN
     # since shadow data is only recorded in DRY_RUN path.

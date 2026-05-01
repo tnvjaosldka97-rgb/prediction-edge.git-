@@ -629,6 +629,15 @@ class ExecutionGateway:
                     await asyncio.sleep(wait)
                 elif any(c in err for c in ["400", "401", "403", "404"]):
                     log.error(f"Order rejected by CLOB ({err[:60]})")
+                    # API health monitor — 401/403 누적 시 killswitch
+                    try:
+                        from risk.api_health import report_api_error
+                        for code in (401, 403, 400, 404):
+                            if str(code) in err:
+                                report_api_error(code, "clob_post_order", err[:200])
+                                break
+                    except Exception:
+                        pass
                     self._record_friction_trace(
                         order, submit_ts,
                         rejection_reason=f"clob_4xx",
