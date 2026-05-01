@@ -17,11 +17,17 @@ class LatencySample:
 
 
 class LatencyModel:
+    """
+    Default 200ms는 USA/EU 콜로 환경 가정값이었는데,
+    2026-04-30 한국 PC 실측 결과 Polymarket CLOB API ~600ms.
+    → mu=500, sigma=200으로 업데이트 (Railway에서 자동 캘리브레이션이
+       라이브 trace 누적 후 더 정확한 값으로 갱신).
+    """
     def __init__(
         self,
-        mu_ms: float = 200.0,
-        sigma_ms: float = 100.0,
-        p_timeout: float = 0.005,
+        mu_ms: float = 500.0,
+        sigma_ms: float = 200.0,
+        p_timeout: float = 0.01,
         timeout_ms: float = 10_000.0,
     ):
         self.mu_ms = mu_ms
