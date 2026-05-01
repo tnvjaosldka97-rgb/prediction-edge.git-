@@ -76,6 +76,15 @@ def get_trip_info() -> dict | None:
         return {"reason": "unknown", "ts": _STATE_FILE.stat().st_mtime}
 
 
+def _send_critical_alert(reason: str, extra: dict) -> None:
+    """killswitch 발동 → 텔레그램 CRITICAL 알림. 실패해도 trip 자체는 진행."""
+    try:
+        from notifications.telegram import notify
+        notify("CRITICAL", f"Killswitch 발동: {reason}", extra)
+    except Exception:
+        pass
+
+
 def trip(reason: str, **extra) -> None:
     """Engage the killswitch. Writes to disk — survives restart."""
     if is_tripped():
