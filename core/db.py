@@ -607,6 +607,22 @@ def get_latest_friction_calibration() -> dict | None:
     }
 
 
+def upsert_oracle_dispute(condition_id: str, dispute_risk: float,
+                          ambiguity_score: float = 0.0) -> None:
+    """oracle_disputes 테이블 upsert. 마켓별 분쟁 리스크 시계열."""
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO oracle_disputes (condition_id, dispute_risk, ambiguity_score, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(condition_id) DO UPDATE SET
+             dispute_risk = excluded.dispute_risk,
+             ambiguity_score = excluded.ambiguity_score,
+             updated_at = excluded.updated_at""",
+        (condition_id, float(dispute_risk), float(ambiguity_score), time.time()),
+    )
+    conn.commit()
+
+
 def insert_audit_log(actor: str, action: str, before: dict | None,
                      after: dict | None, ip: str = "", ua: str = "") -> None:
     conn = get_conn()

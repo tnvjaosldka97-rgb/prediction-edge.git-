@@ -290,7 +290,10 @@ class OnChainWatcher:
 
             self._last_block = to_block
         except Exception as e:
-            log.warning(f"OnChainWatcher poll error: {e}")
+            # 빈 메시지 예외도 진단 가능하도록 타입·repr 출력
+            log.warning(
+                f"OnChainWatcher poll error: {type(e).__name__}: {e!r}"
+            )
 
     async def _decode_entry(self, entry: dict) -> Optional[dict]:
         """Decode using real ABI if available, fallback to manual."""

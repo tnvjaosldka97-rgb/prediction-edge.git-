@@ -66,6 +66,22 @@ def execute_action(action: ProtocolAction) -> bool:
 
     from core.logger import log
 
+    # DRY_RUN(paper)에서는 halt/shadow_switch/killswitch 등 진입차단 액션 스킵.
+    # 데이터 누적·자체보완이 목적인데 가상 손실로 진입을 막으면 본말전도.
+    # info/size_reduce는 통계 학습 위해 허용.
+    try:
+        import config as _cfg
+        if getattr(_cfg, "DRY_RUN", True) and action.action in (
+            "halt_new_entries", "switch_shadow", "killswitch"
+        ):
+            log.warning(
+                f"[drawdown_protocol] DRY_RUN — skipping {action.action} "
+                f"(would have triggered: {action.reason})"
+            )
+            return False
+    except Exception:
+        pass
+
     if action.action == "info":
         log.info(f"[drawdown_protocol] {action.reason}")
     elif action.action == "size_reduce_50":

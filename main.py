@@ -579,11 +579,23 @@ async def main():
 
     bankroll = float(os.getenv("BANKROLL", "1000"))
     # H3 fix: peak_value를 DB 스냅샷에서 복원 — 재시작 시 drawdown 보호 유지
+    # DRY_RUN에서는 bankroll이 환경변수로 갈아끼워질 수 있어 과거 peak가
+    # 부풀어 있으면 즉시 stale-DD halt가 발생 → paper data 수집이 막힘.
+    # 따라서 bankroll 대비 과거 peak 괴리가 +20% 초과면 reset.
     saved_peak = bankroll
     try:
         all_snaps = db.get_snapshots(limit=0)  # 전체
         if all_snaps:
-            saved_peak = max(bankroll, max(row[1] for row in all_snaps))
+            historical_peak = max(row[1] for row in all_snaps)
+            if config.DRY_RUN and historical_peak > bankroll * 1.20:
+                log.warning(
+                    f"[startup] DRY_RUN: stale peak ${historical_peak:.2f} vs "
+                    f"current bankroll ${bankroll:.2f} → resetting peak to bankroll "
+                    f"(prevent stale-DD halt)"
+                )
+                saved_peak = bankroll
+            else:
+                saved_peak = max(bankroll, historical_peak)
     except Exception:
         pass
     portfolio = PortfolioState(bankroll=bankroll, peak_value=saved_peak)
@@ -894,6 +906,17 @@ async def main():
     tasks.append(asyncio.create_task(
         drawdown_monitor_loop(portfolio, interval_sec=300),
         name="drawdown_protocol"
+    ))
+
+    # 2026-05-04: 시스템 자가관측 — oracle_disputes / audit_log 적재
+    from core.system_audit import dispute_writer_loop, system_audit_loop
+    tasks.append(asyncio.create_task(
+        dispute_writer_loop(store, interval_sec=1800, top_n=50),
+        name="dispute_writer"
+    ))
+    tasks.append(asyncio.create_task(
+        system_audit_loop(portfolio, lambda: gateway.stats, interval_sec=3600),
+        name="system_audit"
     ))
 
     # Shadow-Live mark-to-market loop: every 15 min, check resolved markets
